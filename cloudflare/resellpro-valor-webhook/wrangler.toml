@@ -1,0 +1,11 @@
+name = "resellpro-valor-webhook"
+main = "src/index.ts"
+compatibility_date = "2025-10-01"
+
+# Add any bindings you use (examples):
+# [[kv_namespaces]]
+# binding = "MY_KV"
+# id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+#
+# [vars]
+# SOME_FLAG = "true"
