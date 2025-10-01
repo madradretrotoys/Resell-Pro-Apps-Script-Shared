@@ -1,0 +1,473 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Cash Drawer Payouts</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { --gap: 12px; --radius: 12px; --pad: 12px; }
+    *{box-sizing:border-box}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0;background:#fafafa;color:#111}
+    header{background:#fff;border-bottom:1px solid #eee}
+    header .wrap{max-width:900px;margin:0 auto;padding:10px 16px;display:flex;justify-content:space-between;align-items:center}
+    h1{font-size:18px;margin:0}
+    main .wrap{max-width:900px;margin:0 auto;padding:16px}
+    .card{background:#fff;border:1px solid #eee;border-radius:var(--radius);padding:var(--pad);box-shadow:0 1px 2px rgba(0,0,0,.04)}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .col{display:flex;flex-direction:column;gap:6px}
+    input,button,textarea{font-size:16px}
+    input,textarea{border:1px solid #ddd;border-radius:10px;padding:10px 12px;background:#fff}
+    input[readonly]{background:#f3f4f6}
+    textarea{min-height:72px}
+    button{border-radius:10px;padding:10px 12px;border:1px solid #0ea5e9;background:#0ea5e9;color:#fff;cursor:pointer}
+    button.ghost{border-color:#d1d5db;background:#fff;color:#111}
+    button.warn{border-color:#ef4444;background:#ef4444;color:#fff}
+    .tiny{padding:6px 8px;border-radius:8px;font-size:14px}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    .muted{color:#555}
+    .totline{font-weight:700}
+    .ok{color:#16a34a}
+    .err{color:#b91c1c}
+    #summary{display:none;margin-top:10px;border:1px dashed #e5e7eb;border-radius:10px;padding:10px;background:#fff}
+    .grid{display:grid;grid-template-columns:1fr;gap:12px}
+    @media(min-width:860px){ .grid{grid-template-columns:1fr 1fr} }
+  </style>
+</head>
+<body>
+
+  <!-- Define MADRAD_EXEC_URL BEFORE nav include -->
+  <script>
+    window.MADRAD_PAGE = 'payout';
+    window.MADRAD_EXEC_URL = '<?= execUrl ?>';
+  </script>
+  <?!= include('nav'); ?>
+
+<header>
+  <div class="wrap">
+    <h1>Cash Drawer Payouts</h1>
+    <div class="muted">Log cash pulled from Store Drawer, Nichols Drawer, or Safe.</div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="card">
+    <!-- status line -->
+    <div id="msg" class="muted"></div>
+
+    <div class="grid" style="margin-top:8px;">
+      <div class="col">
+        <label>Item Purchased <span class="muted">(required)</span></label>
+        <input id="item" placeholder="e.g., Bubble mailers, Tape, Change for register" />
+      </div>
+
+      <div class="col">
+        <label>User</label>
+        <input id="user" readonly />
+      </div>
+
+      <div class="col" style="grid-column:1/-1">
+        <label>Short Description <span class="muted">(optional)</span></label>
+        <textarea id="desc" placeholder="Details, vendor, receipt note, etc."></textarea>
+      </div>
+    </div>
+
+    <div class="grid" style="margin-top:8px;">
+      <div class="col">
+        <label>Amount from Toy Store Cash Drawer</label>
+        <input id="amtStore" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" />
+      </div>
+      <div class="col">
+        <label>Amount from Nichols Cash Drawer</label>
+        <input id="amtNichols" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" />
+      </div>
+      <div class="col">
+        <label>Amount from Safe</label>
+        <input id="amtSafe" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" />
+      </div>
+      <div class="col totline">
+        <label>Total</label>
+        <input id="total" class="mono" readonly />
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:10px; gap:8px; flex-wrap:wrap;">
+      <button id="btnSave" type="button">Save Payout</button>
+      <button id="btnLoadLast" type="button" class="ghost">Edit/Delete Last Payout</button>
+      <button id="btnDelete" type="button" class="warn" style="display:none;">Delete This Payout</button>
+      <button id="btnClear" type="button" class="ghost">Clear</button>
+      <a id="linkReturn" class="ghost" style="display:none; text-decoration:none; padding:10px 12px; border:1px solid #d1d5db; border-radius:10px; display:none;" target="_top">
+        Return to Buy Ticket
+      </a>
+    </div>
+
+    <div id="summary">
+      <div><strong>Saved:</strong> <span id="s-time"></span></div>
+      <div><strong>Payout ID:</strong> <span id="s-id" class="mono"></span></div>
+      <div><strong>Item:</strong> <span id="s-item"></span></div>
+      <div><strong>Description:</strong> <span id="s-desc"></span></div>
+      <div><strong>Store:</strong> <span id="s-store" class="mono"></span></div>
+      <div><strong>Nichols:</strong> <span id="s-nichols" class="mono"></span></div>
+      <div><strong>Safe:</strong> <span id="s-safe" class="mono"></span></div>
+      <div><strong>Total:</strong> <span id="s-total" class="mono"></span></div>
+      <div><strong>User:</strong> <span id="s-user"></span></div>
+    </div>
+  </section>
+</main>
+
+<script>
+(function(){
+  // --- Auth bootstrap ---
+  const token = localStorage.getItem('mrad_token');
+  if (!token) { window.location.replace('<?= execUrl ?>?page=login'); return; }
+
+  // --- return-to-BuyTicket seed (store the ticket for the return hop) ---
+  function cameFromBuyTicket(){
+    try {
+      const from = (new URLSearchParams(location.search).get('from') || '').toLowerCase();
+      if (from === 'bt') return true;
+      // Session prefill from bticket is authoritative
+      return !!sessionStorage.getItem('mrad_bt_payout_prefill');
+    } catch (e) { return false; }
+  }
+
+  try {
+    const params = new URLSearchParams(location.search);
+    const fromBT = cameFromBuyTicket();
+    if (fromBT) {
+      const t = params.get('ticket') || '';
+      if (t) {
+        // Only seed return ticket when we truly came from Buy Ticket
+        sessionStorage.setItem('mrad_bt_return_ticket', t);
+        // Also wire the visible Return link (only when fromBT)
+        const a = document.getElementById('linkReturn');
+        if (a) {
+          a.style.display = 'inline-block';
+          const base = (window.MADRAD_EXEC_URL || "<?= execUrl ?>").replace(/\/+$/,'');
+          a.href = base + '?' + new URLSearchParams({ page:'bticket', ticket:t }).toString();
+          a.target = '_top';
+        }
+      }
+    }
+  } catch(_) {}
+
+  // --- Buy Ticket → Payout prefill (Item + Description) ---
+  try {
+    const raw = sessionStorage.getItem('mrad_bt_payout_prefill');
+    if (raw) {
+      const seed = JSON.parse(raw);
+      // 1) Item Purchased ← TicketID (from the authoritative prefill or return ticket if present)
+      const t = (seed && seed.ticket) || sessionStorage.getItem('mrad_bt_return_ticket') || '';
+      if (t) document.getElementById('item').value = String(t);
+
+      // 2) Short Description ← "Items purchased from <Seller> for <Offer Total>."
+      const seller = (seed && seed.seller) ? String(seed.seller).trim() : '';
+      const offer  = Number(seed && seed.offer || 0) || 0;
+      if (seller || offer) {
+        const msg = `Items purchased from ${seller || '(seller)'} for ${fmtMoney(offer)}.`;
+        document.getElementById('desc').value = msg;
+      }
+      // (intentionally keep the prefill in sessionStorage so refresh preserves it)
+    }
+    // IMPORTANT: no fallback here. If there was no BT prefill, we leave fields blank.
+  } catch (e) {
+    console.warn('[payout] prefill failed:', e);
+  }
+
+  // --- helpers ---
+  function $(id){ return document.getElementById(id); }
+  function fmtMoney(n){ return '$' + (Number(n)||0).toFixed(2); }
+  function parseAmt(id){
+    const v = String($(id).value || '').trim();
+    const n = parseFloat(v);
+    return isNaN(n) ? 0 : Math.max(0, n);
+  }
+  function recalc(){
+    const sum = parseAmt('amtStore') + parseAmt('amtNichols') + parseAmt('amtSafe');
+    $('total').value = fmtMoney(sum);
+  }
+  function setBusy(btn, label){
+    if (!btn) return;
+    btn.dataset._old = btn.textContent;
+    btn.textContent = label;
+    btn.disabled = true;
+  }
+  function clearBusy(btn){
+    if (!btn) return;
+    btn.textContent = btn.dataset._old || btn.textContent;
+    btn.disabled = false;
+    delete btn.dataset._old;
+  }
+
+  ['amtStore','amtNichols','amtSafe'].forEach(id => {
+    const el = $(id); if (!el) return;
+    el.addEventListener('input', recalc);
+    el.addEventListener('blur', () => { const n=parseAmt(id); el.value = n ? n.toFixed(2) : ''; recalc(); });
+  });
+
+  // Pre-fill user from cached profile if available
+  try { window.MADRAD_PROFILE = JSON.parse(localStorage.getItem('mrad_profile') || 'null'); } catch(_){}
+  if (window.MADRAD_PROFILE) { $('user').value = window.MADRAD_PROFILE.user || ''; }
+
+  // --- state ---
+  const state = { editingId: null, mgrAllowed: false };
+
+  // --- UI helpers ---
+  function showMsg(text, ok){
+    const m = $('msg');
+    m.textContent = text || '';
+    m.className = ok ? 'ok' : (text ? 'err' : 'muted');
+  }
+
+  function clearForm(keepUser){
+    if (!keepUser) $('user').value = '';
+    ['item','desc','amtStore','amtNichols','amtSafe'].forEach(id => { const el=$(id); if(el) el.value=''; });
+    recalc();
+    $('btnDelete').style.display = 'none';
+    state.editingId = null;
+  }
+
+  function showSummary(rec){
+    $('summary').style.display = 'block';
+    $('s-time').textContent = rec.displayTime || '';
+    $('s-id').textContent = rec.id || '';
+    $('s-item').textContent = rec.item || '';
+    $('s-desc').textContent = rec.desc || '';
+    $('s-store').textContent = fmtMoney(rec.store || 0);
+    $('s-nichols').textContent = fmtMoney(rec.nichols || 0);
+    $('s-safe').textContent = fmtMoney(rec.safe || 0);
+    $('s-total').textContent = fmtMoney(rec.total || 0);
+    $('s-user').textContent = rec.user || '';
+  }
+
+   // Research2-style nav helpers (base + top-window goto)
+  function navBase(){
+    return (window.MADRAD_EXEC_URL || "<?= execUrl ?>").replace(/\/+$/,'');
+  }
+  function gotoBuyTicketTop(ticketId){
+    const url = navBase() + '?' + new URLSearchParams({ page:'bticket', ticket:String(ticketId||'') }).toString();
+    console.debug('[payout] top-nav fallback →', url);
+    (window.top || window).location.href = url;
+  }
+
+  /* ----------------- NAVIGATION: sandbox-safe same-frame submit ----------------- */
+  function goToBuyTicket(ticketId){
+      try {
+      const qs = '?' + new URLSearchParams({
+        page: 'bticket',
+        ticket: String(ticketId || '')
+      }).toString();
+      console.debug('[payout] relative return →', qs);
+      window.location.href = location.pathname + qs + (location.hash || '');
+    } catch (e) {
+      console.error('[payout] navigation error', e);
+    }
+  }
+
+
+  // Browser-back first, then same-frame, then top-window — in that order.
+  function smartReturnToBuyTicket(opts){
+    const delay = (opts && opts.delayMs) || 600;
+    const ticket = sessionStorage.getItem('mrad_bt_return_ticket') || '';
+
+    function tryBack(){
+      try {
+        if (history.length > 1) { history.back(); return true; }
+      } catch(_) {}
+      return false;
+    }
+    function trySameFrame(){
+      if (!ticket) return false;
+      try { goToBuyTicket(ticket); return true; } catch(_) {}
+      return false;
+    }
+    function tryTopNav(){
+      if (!ticket) return false;
+      try { gotoBuyTicketTop(ticket); return true; } catch(_) {}
+      return false;
+    }
+
+    setTimeout(() => {
+      if (tryBack()) return;
+      if (trySameFrame()) return;
+      tryTopNav();
+    }, delay);
+  }
+
+  // Minimal detector: only auto-return if we arrived from Buy Ticket.
+  // Signal 1: bticket → payout stashed a prefill seed.
+  // Signal 2 (fallback): URL includes ?ticket= (typical of BT flow).
+  function cameFromBuyTicket(){
+    try {
+      if (sessionStorage.getItem('mrad_bt_payout_prefill')) return true;
+      const p = new URLSearchParams(location.search);
+      return !!p.get('ticket');
+    } catch (_) { return false; }
+  }
+
+  // Minimal “press back arrow” — exactly what you asked for.
+  function pressBackArrow(){
+    try { (window.top || window).history.back(); }
+    catch (_) { history.back(); }
+  }
+
+  function validate(){
+    const item = $('item').value.trim();
+    const sum = parseAmt('amtStore') + parseAmt('amtNichols') + parseAmt('amtSafe');
+    if (!item) { showMsg('Item Purchased is required', false); return false; }
+    if (sum <= 0) { showMsg('Enter at least one amount > $0.00', false); return false; }
+    return true;
+  }
+
+  // --- Manager visibility (same pattern as Drawer) ---
+  function updatePayoutManagerVis(){
+    const user = ($('user')?.value || '').trim();
+    const loginId = (window.MADRAD_PROFILE && (window.MADRAD_PROFILE.login || window.MADRAD_PROFILE.username || window.MADRAD_PROFILE.email || '')) || '';
+    const btnLoadLast = $('btnLoadLast');
+    const btnDelete   = $('btnDelete');
+
+    // pessimistic default
+    state.mgrAllowed = false;
+    if (btnLoadLast) btnLoadLast.style.display = 'none';
+    if (btnDelete)   btnDelete.style.display   = 'none';
+
+    google.script.run
+      .withSuccessHandler(function(res){
+        state.mgrAllowed = !!(res && (res.canLoad === true || res === true));
+        if (state.mgrAllowed) {
+          if (btnLoadLast) btnLoadLast.style.display = state.editingId ? 'none' : '';
+          if (btnDelete)   btnDelete.style.display   = state.editingId ? 'inline-block' : 'none';
+        }
+      })
+      .withFailureHandler(function(){
+        state.mgrAllowed = false;
+      })
+      .apiCD_CanLoad(user, loginId);
+  }
+
+  // Verify token -> refresh profile -> then check manager permissions
+  google.script.run
+    .withSuccessHandler(function(profile){
+      window.MADRAD_PROFILE = profile;
+      localStorage.setItem('mrad_profile', JSON.stringify(profile));
+      if (!$('user').value) $('user').value = profile.user || '';
+      updatePayoutManagerVis();
+    })
+    .withFailureHandler(function(){
+      localStorage.removeItem('mrad_token');
+      localStorage.removeItem('mrad_profile');
+      window.location.replace('<?= execUrl ?>?page=login');
+    })
+    .apiVerify(token);
+
+  // --- Save ---
+  $('btnSave').addEventListener('click', function () {
+    
+    const payload = {
+      item: $('item').value.trim(),
+      desc: $('desc').value.trim(),
+      store: parseAmt('amtStore'),
+      nichols: parseAmt('amtNichols'),
+      safe: parseAmt('amtSafe'),
+      user: $('user').value.trim(),
+      id: state.editingId || null
+    };
+
+    const btn = $('btnSave');
+    showMsg('Saving…', true);
+    setBusy(btn, 'Saving…');
+
+    const runner = google.script.run
+      .withSuccessHandler(function (res) {
+        clearBusy(btn);
+        showMsg('Saved successfully.', true);
+        showSummary(res || {});
+        clearForm(true);
+        updatePayoutManagerVis(); // back to non-editing state
+        // Only “press back” if we came from Buy Ticket.
+        if (cameFromBuyTicket()) {
+          // brief pause so the user can see “Saved successfully.”
+          setTimeout(pressBackArrow, 700);
+        }
+        
+      })
+      .withFailureHandler(function (err) {
+        clearBusy(btn);
+        showMsg((err && err.message) ? err.message : 'Save failed', false);
+      });
+
+    if (state.editingId) runner.apiPayout_Update(payload);
+    else                 runner.apiPayout_Save(payload);
+  });
+
+  // --- Load last (manager only) ---
+  $('btnLoadLast').addEventListener('click', function(){
+    if (!state.mgrAllowed) { showMsg('Manager access required to load the last payout.', false); return; }
+    setBusy($('btnLoadLast'), 'Loading…');
+    google.script.run
+      .withSuccessHandler(function(rec){
+        clearBusy($('btnLoadLast'));
+        if (!rec || !rec.id) { showMsg('No payouts logged yet.', false); return; }
+        state.editingId = rec.id;
+        $('item').value = rec.item || '';
+        $('desc').value = rec.desc || '';
+        $('amtStore').value = rec.store ? rec.store.toFixed(2) : '';
+        $('amtNichols').value = rec.nichols ? rec.nichols.toFixed(2) : '';
+        $('amtSafe').value = rec.safe ? rec.safe.toFixed(2) : '';
+        $('user').value = rec.user || $('user').value;
+        recalc();
+        // Now we're in editing mode:
+        $('btnLoadLast').style.display = 'none';
+        $('btnDelete').style.display   = state.mgrAllowed ? 'inline-block' : 'none';
+        showMsg('Loaded last payout. You can edit and save, or delete.', true);
+      })
+      .withFailureHandler(function(err){
+        clearBusy($('btnLoadLast'));
+        showMsg((err && err.message) ? err.message : 'Load failed', false);
+      })
+      .apiPayout_LoadLast();
+  });
+
+  // --- Delete (manager only) ---
+  $('btnDelete').addEventListener('click', function () {
+    if (!state.mgrAllowed) { showMsg('Manager access required to delete payouts.', false); return; }
+    if (!state.editingId) return;
+    if (!confirm('Are you sure you want to DELETE this payout?')) return;
+
+    const btn = $('btnDelete');
+    showMsg('Deleting…', true);
+    setBusy(btn, 'Deleting…');
+
+    google.script.run
+      .withSuccessHandler(function () {
+        clearBusy(btn);
+        showMsg('Payout deleted.', true);
+        clearForm(true);
+        $('summary').style.display = 'none';
+        updatePayoutManagerVis();
+      })
+      .withFailureHandler(function (err) {
+        clearBusy(btn);
+        showMsg((err && err.message) ? err.message : 'Delete failed', false);
+      })
+      .apiPayout_Delete(state.editingId);
+  });
+
+  // Clear
+  $('btnClear').addEventListener('click', function(){
+    clearForm(true);
+    showMsg('', true);
+    $('summary').style.display='none';
+    updatePayoutManagerVis();
+  });
+
+  // initial totals
+  recalc();
+
+  
+
+
+})();
+</script>
+
+</body>
+</html>

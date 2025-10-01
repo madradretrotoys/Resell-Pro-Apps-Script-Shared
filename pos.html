@@ -1,0 +1,1819 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Mad Rad POS</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+      :root { --gap: 12px; --radius: 12px; --pad: 12px; }
+      *{box-sizing:border-box}
+      body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0;background:#fafafa;color:#111}
+      header{background:#fff;border-bottom:1px solid #eee}
+      header .wrap{max-width:900px;margin:0 auto;padding:10px 16px;display:flex;justify-content:space-between;align-items:center}
+      h1{font-size:18px;margin:0}
+      main .wrap{max-width:900px;margin:0 auto;padding:16px}
+      .card{background:#fff;border:1px solid #eee;border-radius:var(--radius);padding:var(--pad);box-shadow:0 1px 2px rgba(0,0,0,.04)}
+      .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+      input,button,select,textarea{font-size:16px}
+      input,select,textarea{border:1px solid #ddd;border-radius:10px;padding:10px 12px;background:#fff}
+      button{border-radius:10px;padding:10px 12px;border:1px solid #0ea5e9;background:#0ea5e9;color:#fff;cursor:pointer}
+      button.secondary{border-color:#6b7280;background:#6b7280}
+      button.big{ font-size:18px; padding:12px 16px; }
+      button.warn{border-color:#ef4444;background:#ef4444}
+      button.ghost{border-color:#d1d5db;background:#fff;color:#111}
+      button[disabled]{ opacity:.7; cursor:not-allowed; }
+      .grid{display:grid;grid-template-columns:1fr;gap:12px}
+      @media (min-width:860px){ .grid{grid-template-columns:1fr 1fr} }
+      .list{display:flex;flex-direction:column;gap:8px;max-height:46vh;overflow:auto}
+      .item{display:flex;justify-content:space-between;gap:8px;border:1px solid #eee;border-radius:10px;padding:10px}
+      .item .meta{display:flex;flex-direction:column;gap:2px}
+      .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+      .cart{display:flex;flex-direction:column;gap:8px}
+      .cart-line{display:flex;justify-content:space-between;gap:8px;border:1px solid #eee;border-radius:10px;padding:10px;background:#fff}
+      .qtybox{width:64px;text-align:center}
+      /* MRAD-PATCH QTY-INPUT: optional clamped style */
+      .qtybox:out-of-range {
+        outline: 2px solid #f59e0b; /* amber */
+      }
+      .discbox{min-width:220px;max-width:100%;text-align:left}
+      .tiny{padding:6px 8px;border-radius:8px;font-size:14px}
+
+      /* ---- Line item discount panel (separate visual container) ---- */
+      .discPanel{
+        background:#f8fafc;
+        border:1px dashed #e2e8f0;
+        border-radius:8px;
+        padding:8px;
+        margin-top:8px;
+      }
+      .discPanel .label{
+        font-size:12px;
+        color:#475569;
+        min-width:70px;
+      }
+      .modeBtn[aria-pressed="true"]{
+        background:#2563eb;       /* highlight the chosen mode */
+        border-color:#2563eb;
+        color:#fff;
+      }
+      .discVal{
+        width:140px;
+        text-align:right;
+      }
+      /* Make it obvious when the discount input is disabled */
+      .discVal:disabled{
+        background:#f1f5f9;     /* light gray background */
+        color:#94a3b8;           /* muted text */
+        border-color:#e2e8f0;    /* soft border */
+        cursor:not-allowed;      /* clear affordance */
+      }
+      .discVal:disabled::placeholder{
+        color:#94a3b8;           /* muted placeholder too */
+      }
+      .totals{margin-top:8px;border-top:1px dashed #e5e7eb;padding-top:8px;display:flex;flex-direction:column;gap:6px}
+      .totals .row{justify-content:space-between}
+      .muted{color:#555}
+      
+      /* HIDE ticket-level discount UI but keep code intact (reversible) */
+      #subDiscRow { display:none !important; visibility:hidden; height:0; padding:0; margin:0; }
+      #subDiscRow * { pointer-events:none; }
+
+
+      /* split payments */
+      .pay-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+      .pay-row select{min-width:160px}
+      .pay-row input[type=number]{width:130px;text-align:right}
+
+      /* sales viewer */
+      table{width:100%;border-collapse:collapse}
+      th,td{padding:8px;border-bottom:1px solid #eee;text-align:left}
+      th.right,td.right{text-align:right}
+      .sales-head{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+      .pill{background:#eef2ff;color:#1e40af;border:1px solid #c7d2fe;border-radius:999px;padding:4px 10px;font-size:12px}
+
+      /* Valor badge */
+      .badge{border-radius:999px;padding:4px 10px;font-size:12px;border:1px solid #ddd}
+      .badge.idle{background:#f3f4f6;color:#374151;border-color:#e5e7eb}
+      .badge.wait{background:#fff7ed;color:#9a3412;border-color:#fed7aa}
+      .badge.ok{background:#ecfdf5;color:#065f46;border-color:#a7f3d0}
+      .badge.err{background:#fef2f2;color:#991b1b;border-color:#fecaca}
+    </style>
+  </head>
+<body>
+
+  <!-- IMPORTANT: define MADRAD_EXEC_URL BEFORE nav include -->
+    <script>
+      window.MADRAD_PAGE = 'pos';
+      window.MADRAD_EXEC_URL = '<?= execUrl ?>';
+    </script>
+    <?!= include('nav'); ?>
+
+  <header>
+    <div class="wrap">
+      <h1>Mad Rad POS</h1>
+      <div class="row">
+        <div id="valorBadge" class="badge idle" title="Valor terminal">VALOR: Idle</div>
+        <div id="taxTag" class="mono" style="font-size:12px;color:#444;"></div>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div class="grid">
+      <!-- LEFT: search results -->
+      <section class="card">
+         <!-- New: quick Misc add (moved here from Ticket header) -->
+        <div class="row" style="gap:10px; align-items:center; margin-bottom:6px;">
+          <button id="btnAddMisc" type="button" class="big">+ Misc</button>
+          <span class="muted" style="font-weight:bold; font-size:1.2em;">-or-</span>
+        </div>
+        <div class="row">
+          <input id="q" placeholder="Search by name / SKU / barcode" style="flex:1;" />
+          <button id="btnSearch" type="button">Search</button>
+          <button id="btnClear" class="ghost" type="button">Clear</button>
+
+        </div>
+        <div id="results" class="list" style="margin-top:8px;"></div>
+      </section>
+
+      <!-- RIGHT: cart -->
+      <section class="card">
+        <div class="row" style="justify-content:space-between">
+          <div><strong>Ticket</strong></div>
+          <div class="row">
+            
+            <button id="btnEmpty" class="ghost tiny" type="button">Empty</button>
+          </div>
+        </div>
+
+        <div id="cart" class="cart" style="margin-top:8px;"></div>
+
+        <!-- Ticket-level discount (hidden until at least one item is on the ticket) -->
+        <div id="subDiscRow" class="row" style="margin-top:8px; gap:8px; display:none;">
+          <input id="subDiscInput" placeholder="Ticket discount: $ or % (e.g. $5 or 10%)" style="flex:1;" />
+          <button id="applySubDisc" class="tiny" type="button">Apply</button>
+          <button id="clearSubDisc" class="ghost tiny" type="button">Clear</button>
+        </div>
+
+        <!-- Totals -->
+        <div class="totals">
+          <div class="row"><span>Subtotal</span><span class="mono" id="subtotal">$0.00</span></div>
+          <div class="row"><span>Discounts</span><span class="mono" id="discountsTotal">-$0.00</span></div>
+          <div class="row"><span>Tax</span><span class="mono" id="tax">$0.00</span></div>
+          <div class="row"><strong>Total</strong><strong class="mono" id="total">$0.00</strong></div>
+        </div>
+
+        <!-- Payments row: single + split toggle -->
+        <div class="row" style="margin-top:10px; gap:8px; flex-wrap:wrap;">
+          <select id="payment" style="flex:1;">
+            <option value="" selected disabled>Select payment…</option>
+            <option>Cash</option>
+            <option>Visa</option>
+            <option>Mastercard</option>
+            <option>American Express</option>
+            <option>Discover</option>
+            <option>Venmo</option>
+            <option>Zelle</option>
+            <option>Cashapp</option>
+            <option>Paypal</option>
+          </select>
+
+          <!-- NEW: appears only for single Cash -->
+          <span id="cashBox" class="row" style="display:none; gap:8px; align-items:center;">
+            <label for="cashReceived" class="mono" style="font-size:12px;">Cash received</label>
+            <input id="cashReceived" type="number" min="0" step="0.01" inputmode="decimal" placeholder="$" style="width:110px;" />
+            <span id="cashChangeWrap" class="mono" aria-live="polite" style="display:none;">
+              Change: <span id="cashChange">$0.00</span>
+            </span>
+          </span>
+
+          <button id="btnSplit" class="ghost tiny" type="button" style="flex:0 0 auto;">Split payment</button>
+          <input id="clerk" placeholder="Clerk" style="flex:1;" readonly />
+          <button id="btnCheckout" type="button" style="flex:2;">Complete Sale</button>
+        </div>
+
+        <!-- Split panel -->
+        <div id="splitBox" class="card" style="display:none; margin-top:8px;">
+          <div id="pays" class="cart" style="gap:6px;"></div>
+          <div class="row" style="gap:8px; margin-top:6px;">
+            <button id="addPay" class="tiny" type="button">Add payment</button>
+            <div class="spacer" style="flex:1;"></div>
+            <div class="mono">Paid: <span id="paid">$0.00</span></div>
+            <div class="mono">Due: <span id="due">$0.00</span></div>
+            <div class="mono" id="changeWrap" style="display:none;">Change: <span id="change">$0.00</span></div>
+          </div>
+        </div>
+
+        <div id="saveMsg" class="mono" style="margin-top:8px; font-size:12px; color:#2563eb;"></div>
+        <details id="saveLogsBox" style="margin-top:6px;">
+          <summary class="mono" style="font-size:12px;cursor:pointer;">View save logs</summary>
+          <pre id="saveLogs" class="mono" style="white-space:pre-wrap; font-size:11px; padding:6px; background:#f1f5f9; border-radius:6px; margin:6px 0 0 0;"></pre>
+        </details>
+      </section>
+    </div>
+
+    <!-- ===== Vendoo Delist Queue (semi-manual) ===== -->
+    <div id="vendooDelist" style="margin:12px 0; border:1px solid #cbd5e1; border-radius:8px; padding:10px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <div style="font-weight:600;">Vendoo Delist Queue</div>
+        <div>
+          <button id="vendooDelistRefresh" class="btn btn-sm">Refresh</button>
+          <span style="font-size:12px; color:#475569; margin-left:8px;">Items ≥1h yellow, ≥2h orange, ≥3h red.</span>
+        </div>
+      </div>
+      <div style="overflow:auto;">
+        <table id="vendooDelistTable" class="mono" style="width:100%; font-size:12px; border-collapse:collapse;">
+          <thead>
+            <tr style="background:#f1f5f9;">
+              <th style="text-align:left; padding:6px; border-bottom:1px solid #e2e8f0;">Date</th>
+              <th style="text-align:left; padding:6px; border-bottom:1px solid #e2e8f0;">Sale ID</th>
+              <th style="text-align:left; padding:6px; border-bottom:1px solid #e2e8f0;">SKU</th>
+              <th style="text-align:left; padding:6px; border-bottom:1px solid #e2e8f0; min-width:220px;">Item</th>
+              <th style="text-align:left; padding:6px; border-bottom:1px solid #e2e8f0;">Qty</th>
+              <th style="text-align:left; padding:6px; border-bottom:1px solid #e2e8f0;">Final Price</th>
+              <th style="text-align:left; padding:6px; border-bottom:1px solid #e2e8f0;">Vendoo</th>
+              <th style="text-align:left; padding:6px; border-bottom:1px solid #e2e8f0;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="vendooDelistBody">
+            <tr><td colspan="8" style="padding:8px; color:#64748b;">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <!-- ===== /Vendoo Delist Queue ===== -->
+
+    <!-- NEW: Sales viewer -->
+    <section class="card" style="margin-top:12px;">
+      <div class="sales-head">
+        <div><strong>Sales (Today / Custom)</strong></div>
+        <div class="row" style="gap:8px;">
+          <button id="btnLoadToday" type="button" class="tiny">Today</button>
+          <span class="muted">or</span>
+          <input id="fromDate" type="date" />
+          <span>to</span>
+          <input id="toDate" type="date" />
+          <button id="btnLoadRange" type="button" class="tiny">Load</button>
+          <span id="salesStatus" class="pill" style="display:none"></span>
+        </div>
+      </div>
+      <div style="margin-top:8px; overflow:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th style="min-width:120px;">Time</th>
+              <th>Sale ID</th>
+              <th>Payment</th>
+              <th class="right">Total</th>
+              <th>Clerk</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="salesBody">
+            <tr><td colspan="6" class="muted">No sales loaded.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+
+
+  <script>
+  /* ---------------- boot ---------------- */
+  const token = localStorage.getItem('mrad_token');
+  if (!token) { window.location.replace('<?= execUrl ?>?page=login'); }
+
+  /* ---------------- helpers / state ---------------- */
+  const $ = id => document.getElementById(id);
+  const fmt = n => '$' + (Number(n)||0).toFixed(2);
+  let taxRate = 0.085; // server is source of truth; this is just for display
+
+  const METHODS = ['Cash','Visa','Mastercard','American Express','Discover','Venmo','Zelle','Cashapp','Paypal'];
+
+  const state = {
+    items: [],                    // {type:'sku'|'misc', sku?, name, price, qty, discountType?, discountValue?}
+    subtotalDiscount: null,       // {type:'percent'|'amount', value}
+    split: false,
+    payments: []                  // [{method, amount}]
+  };
+
+  /* Valor badge helper */
+  function setValorBadge(state, text){
+    const el = $('valorBadge'); if (!el) return;
+    el.classList.remove('idle','wait','ok','err');
+    el.classList.add(state);
+    if (text) el.textContent = 'VALOR: ' + text;
+    else {
+      el.textContent = (state==='wait') ? 'VALOR: Waiting…'
+                    : (state==='ok')   ? 'VALOR: Approved'
+                    : (state==='err')  ? 'VALOR: Error'
+                    : 'VALOR: Idle';
+    }
+  }
+
+  /* ---------------- discount + math ---------------- */
+  function parseDiscountInput(text){
+    if (!text) return null;
+    const t = String(text).trim();
+    if (/^\$?\s*\d+(\.\d{1,2})?$/.test(t)) {
+      const v = Number(t.replace('$',''));
+      return { type:'amount', value: v };
+    }
+    if (/^\d+(\.\d{1,2})?\s*%$/.test(t)) {
+      const v = Number(t.replace('%',''));
+      return { type:'percent', value: v };
+    }
+    return null;
+  }
+
+  function lineTotals(it){
+    const qty = Math.max(1, Number(it.qty)||1);
+    const price = Math.max(0, Number(it.price)||0);
+    const base = qty * price;
+    let disc = 0;
+    if (it.discountType === 'percent') disc = base * (Number(it.discountValue)||0) / 100;
+    else if (it.discountType === 'amount')  disc = Number(it.discountValue)||0;
+    disc = Math.min(Math.max(disc, 0), base);
+    const net = base - disc;
+    return { base, disc, net };
+  }
+
+  function totals(){
+    let rawSub=0, lineDiscTotal=0, netAfterLine=0;
+    state.items.forEach(it => { const t = lineTotals(it); rawSub += t.base; lineDiscTotal += t.disc; netAfterLine += t.net; });
+    let subDiscAmt = 0;
+    if (state.subtotalDiscount) {
+      const d = state.subtotalDiscount;
+      if (d.type === 'percent') subDiscAmt = netAfterLine * (Number(d.value)||0) / 100;
+      else if (d.type === 'amount') subDiscAmt = Number(d.value)||0;
+      subDiscAmt = Math.min(Math.max(subDiscAmt,0), netAfterLine);
+    }
+    const sub = +(netAfterLine - subDiscAmt).toFixed(2);
+    const tax = +(sub * taxRate).toFixed(2);
+    const tot = +(sub + tax).toFixed(2);
+    return { rawSub, lineDiscTotal, subDiscAmt, subtotal: sub, tax, total: tot };
+  }
+
+  function currentTotal(){ return totals().total; }
+
+  /* ---------------- split UI helpers ---------------- */
+  function updateSplitMeters(){
+    if (!state.split) return;
+    const due = currentTotal();
+    const paid = +(state.payments.reduce((s,p)=>s + (Number(p.amount)||0), 0)).toFixed(2);
+    const change = Math.max(0, +(paid - due).toFixed(2));
+    $('paid').textContent = fmt(paid);
+    $('due').textContent = fmt(Math.max(due - paid, 0));
+    $('change').textContent = fmt(change);
+    $('changeWrap').style.display = change > 0 ? 'inline-block' : 'none';
+  }
+  function renderPayments(){
+    const box = $('pays'); if (!box) return;
+    box.innerHTML = '';
+    state.payments.forEach((p, idx) => {
+      const row = document.createElement('div');
+      row.className = 'pay-row';
+      row.innerHTML = `
+        <select class="pmSel">${METHODS.map(m=>`<option ${m===p.method?'selected':''}>${m}</option>`).join('')}</select>
+        <input class="pmAmt" type="number" min="0" step="0.01" inputmode="decimal" value="${(Number(p.amount)||0).toFixed(2)}" />
+        <button class="ghost tiny" type="button" data-act="remove">Remove</button>
+      `;
+      row.querySelector('.pmSel').onchange = e => { p.method = e.target.value; };
+      row.querySelector('.pmAmt').oninput  = e => { p.amount = parseFloat(e.target.value)||0; updateSplitMeters(); updateCheckoutEnabled(); };
+      row.querySelector('[data-act=remove]').onclick = () => { state.payments.splice(idx,1); renderPayments(); updateSplitMeters(); updateCheckoutEnabled(); };
+      box.appendChild(row);
+    });
+    updateSplitMeters();
+    updateCheckoutEnabled();
+  }
+
+  /* ---------------- gating: enable/disable Complete Sale ---------------- */
+  function paidTotals_(){
+    const due  = currentTotal();
+    const paid = +(state.payments.reduce((s,p)=>s + (Number(p.amount)||0), 0)).toFixed(2);
+    const change = Math.max(0, +(paid - due).toFixed(2));
+    return { due, paid, change };
+  }
+
+  function updateCheckoutEnabled(){
+    const btn = $('btnCheckout');
+    if (!btn) return;
+    const hasItems = state.items.length > 0;
+
+    if (!hasItems) { btn.disabled = true; return; }
+
+    if (state.split){
+      const {due, paid} = paidTotals_();
+      btn.disabled = paid + 1e-9 < due;        // enable only when Paid ≥ Due
+    } else {
+      const method = $('payment').value;
+      const btn = $('btnCheckout');
+      if (!method) { btn.disabled = true; return; }
+
+      if (method === 'Cash') {
+        const raw = $('cashReceived')?.value ?? '';
+        const hasValue = String(raw).trim() !== '';
+        const got = hasValue ? Math.max(0, Number(raw) || 0) : 0;
+        const due = totals().total;
+
+        // Require: field populated AND amount >= total
+        btn.disabled = !hasValue || (got + 1e-9 < due);
+      } else {
+        // Non-cash single payment: enabled when a method is chosen
+        btn.disabled = false;
+      }
+    }
+  }
+
+  /* ---------------- renderers ---------------- */
+  function recalc(){
+    const t = totals();
+    $('subtotal').textContent = fmt(t.subtotal);
+    if ($('discountsTotal')) $('discountsTotal').textContent = fmt(-(t.lineDiscTotal + t.subDiscAmt));
+    $('tax').textContent = fmt(t.tax);
+    $('total').textContent = fmt(t.total);
+    updateSplitMeters();
+    updateCheckoutEnabled();
+  }
+
+  function renderCart(){
+    const box = $('cart'); 
+    box.innerHTML = '';
+
+    // Toggle ticket-level discount row visibility based on whether the cart has items.
+     // Toggle ticket-level discount row visibility based on whether the cart has items.
+    const discRow = $('subDiscRow');
+    if (!state.items.length){
+      if (discRow) discRow.style.display = 'none';
+      // Keep behavior consistent with "Empty": clear any ticket-level discount when no items remain.
+      state.subtotalDiscount = null;
+      if ($('subDiscInput')) $('subDiscInput').value = '';
+      box.innerHTML = '<div class="muted">No items yet.</div>';
+      recalc();
+      return;
+    }
+    // Intentionally keep ticket-level discount UI hidden (CSS #subDiscRow forces display:none).
+    // if (discRow) discRow.style.display = 'flex';
+
+    state.items.forEach((it, idx) => {
+      const isSku = it.type !== 'misc';
+      const maxQ  = isSku ? Math.max(1, Number(it.maxQty || it.qty || 1)) : 999;
+      const curQ  = Math.min(Math.max(1, Number(it.qty || 1)), maxQ);
+      it.qty = curQ; // clamp just in case
+
+      const t = lineTotals(it);
+      /* MRAD-PATCH QTY-INPUT (editable for all lines) */
+      const qtyControl = `
+        <input
+          class="qtybox qtyNum"
+          type="number"
+          inputmode="numeric"
+          min="1"
+          ${isSku ? `max="${maxQ}"` : ''}
+          step="1"
+          value="${curQ}"
+          aria-label="Quantity"
+        />
+      `;
+
+      const el = document.createElement('div');
+      el.className = 'cart-line';
+      // AFTER — same header/meta; new 2-part discount UI inside the second row
+      el.innerHTML = `
+        <div style="flex:1; min-width:0;">
+          <!-- Line header -->
+          <div><strong>${it.name}</strong></div>
+          <div class="mono" style="font-size:12px;color:#444;">
+            ${isSku ? (it.sku||'') : 'MISC'} · $${Number(it.price||0).toFixed(2)}
+            ${it.storeLoc ? ` · ${it.storeLoc}` : ''} ${it.caseBinShelf ? ` · ${it.caseBinShelf}` : ''}
+            ${isSku ? ` · In stock: ${maxQ}` : ''}
+          </div>
+
+          <!-- Primary controls row (qty at left, net+remove at right) -->
+          <div class="row" style="gap:8px; justify-content:space-between; margin-top:6px;">
+            <div class="row" style="gap:6px; align-items:center;">
+              <span class="mono" style="font-size:12px; color:#475569;">Qty</span>
+              ${qtyControl}
+            </div>
+            <div class="row" style="gap:6px; align-items:center;">
+              <div class="mono lineNet" style="min-width:110px; text-align:right;">${fmt(t.net)}</div>
+              <button class="ghost tiny" type="button" data-act="remove">Remove</button>
+            </div>
+          </div>
+
+          <!-- Discount panel (separate container, below the main line controls) -->
+          <div class="discPanel">
+            <div class="row" style="gap:8px; align-items:center;">
+              <span class="label">Discount</span>
+
+              <!-- Mode selector -->
+              <div class="row" style="gap:6px;">
+                <button class="tiny ghost modeBtn" type="button"
+                        data-mode="percent"
+                        aria-pressed="${it.discountType==='percent' ? 'true' : 'false'}">% </button>
+                <button class="tiny ghost modeBtn" type="button"
+                        data-mode="amount"
+                        aria-pressed="${it.discountType==='amount'  ? 'true' : 'false'}">$</button>
+              </div>
+
+              <!-- Numeric field (disabled until mode is chosen) -->
+              <input class="discVal" type="number" min="0" step="0.01" inputmode="decimal"
+                placeholder="${it.discountType==='percent' ? 'Enter percent (e.g., 10)' : 'Enter dollars (e.g., 2.50)'}"
+                value="${(it.discountType==='percent' || it.discountType==='amount') ? (Number(it.discountValue)||0) : ''}"
+                ${(it.discountType==='percent' || it.discountType==='amount') ? '' : 'disabled title="Select % or $ to enable"'} />
+
+              <!-- Apply / Undo -->
+              <div class="row" style="gap:6px; margin-left:auto;">
+                <button class="tiny applyBtn" type="button" disabled>Apply</button>
+                <button class="ghost tiny undoBtn" type="button" ${it.discountType ? '' : 'style="display:none;"'}>Undo</button>
+              </div>
+            </div>
+
+            <!-- Live preview under the controls -->
+            <div class="mono preview" aria-live="polite" style="font-size:12px; color:#444; margin-top:6px;"></div>
+          </div>
+        </div>
+      `;
+
+      // Qty control
+      // MRAD-PATCH QTY-INPUT HANDLERS (single <input> for all lines) — now updates per-line net immediately
+      {
+        const num   = el.querySelector('.qtyNum');
+        const netEl = el.querySelector('.lineNet');
+
+        // small helper to refresh this row's displayed total
+        const updateLineNet = () => {
+          if (!netEl) return;
+          const tNow = lineTotals(it);      // uses it.qty, it.price, it.discount*
+          netEl.textContent = fmt(tNow.net);
+        };
+
+        if (num) {
+          // Prevent scroll-wheel accidentally changing qty when scrolling
+          num.addEventListener('wheel', (ev) => { ev.preventDefault(); num.blur(); }, { passive: false });
+
+          // Live clamp while typing
+          num.addEventListener('input', (e) => {
+            // Allow temporary empty input (don’t nuke user typing), just skip recalc until valid
+            const raw = String(e.target.value || '').trim();
+            if (raw === '') { return; }
+
+            let next = Math.floor(Number(raw) || 0);
+            if (next < 1) next = 1;
+            if (isSku && next > maxQ) next = maxQ;
+
+            // Keep the visible value clamped
+            if (String(next) !== raw) e.target.value = String(next);
+
+            // Update model + UI + totals
+            it.qty = next;
+            updateLineNet(); // <-- refresh the line amount immediately
+            recalc();
+          });
+
+          // On blur, coerce empty/invalid to 1
+          num.addEventListener('blur', (e) => {
+            let n = Math.floor(Number(e.target.value) || 0);
+            if (n < 1) n = 1;
+            if (isSku && n > maxQ) n = maxQ;
+            e.target.value = String(n);
+            it.qty = n;
+            updateLineNet(); // <-- ensure the line is correct after blur
+            recalc();
+          });
+
+          // Also respond to Enter quickly
+          num.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.currentTarget.blur(); }
+          });
+        }
+      }
+
+      // Discount input
+      // ---------- New discount controls ----------
+     // ---------- Discount controls (simplified: no chips) ----------
+      const modeBtns = Array.from(el.querySelectorAll('.modeBtn'));
+      const valInput = el.querySelector('.discVal');
+      const preview  = el.querySelector('.preview');
+      const applyBtn = el.querySelector('.applyBtn');
+      const undoBtn  = el.querySelector('.undoBtn');
+
+      function getBase(){ 
+        const qty = Math.max(1, Number(it.qty)||1);
+        const price = Math.max(0, Number(it.price)||0);
+        return qty * price;
+      }
+      function activeMode(){
+        const btn = modeBtns.find(b => b.getAttribute('aria-pressed') === 'true');
+        return btn ? btn.dataset.mode : null; // 'percent' | 'amount' | null
+      }
+      function setMode(m){
+        modeBtns.forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === m ? 'true' : 'false'));
+        // Enable field only after a mode is chosen
+        valInput.disabled = !m;
+        // Update placeholder based on mode
+        if (valInput) {
+          valInput.placeholder = (m === 'percent') ? 'Enter percent (e.g., 10)' : 'Enter dollars (e.g., 2.50)';
+        }
+        // If user hadn’t picked a mode before, clear preview and disable Apply
+        if (!m) { preview.textContent=''; applyBtn.disabled = true; return; }
+        refreshPreview();
+        refreshApplyEnabled();
+      }
+      function refreshApplyEnabled(){
+        const m = activeMode();
+        const raw = String(valInput.value || '').trim();
+        const num = Number(raw);
+        const validNum = m && raw !== '' && !isNaN(num) && num >= 0;
+        let ok = false;
+        if (m === 'percent') ok = validNum && num <= 100;
+        if (m === 'amount')  ok = validNum && num <= getBase() + 1e-9;
+        applyBtn.disabled = !ok;
+      }
+      function refreshPreview(){
+        const m = activeMode();
+        const raw = String(valInput.value || '').trim();
+        const num = Number(raw);
+        const base = getBase();
+        preview.textContent = ''; 
+        if (!m || raw === '' || isNaN(num)) return;
+
+        const discAmt = (m === 'percent') ? (base * (num || 0) / 100) : Math.min(Number(num)||0, base);
+        const effPct  = base > 0 ? (discAmt / base * 100) : 0;
+        const net     = base - discAmt;
+
+        preview.textContent = (m === 'percent')
+          ? `Will take ${fmt(discAmt)} (${(num||0).toFixed(2)}%) → line ${fmt(net)}`
+          : `Will take ${fmt(discAmt)} (${effPct.toFixed(2)}% of line) → line ${fmt(net)}`;
+        preview.style.color = effPct >= 30 ? '#9a3412' : '#444';
+      }
+
+      // Mode buttons
+      modeBtns.forEach(b => b.onclick = () => setMode(b.dataset.mode));
+
+      // Input changes
+      valInput.oninput = () => { refreshPreview(); refreshApplyEnabled(); };
+
+      // Apply — only hit the approval gate if (a) profile is loaded AND (b) discount exceeds the user’s limit.
+      // Otherwise, apply directly (same as your previous behavior).
+      applyBtn.onclick = () => {
+        const m = activeMode();
+        const raw = String(valInput.value || '').trim();
+        const num = Number(raw);
+        if (!m || raw === '' || isNaN(num)) { alert('Choose % or $ and enter a number.'); return; }
+
+        const base = getBase();
+        const candPct = (m === 'percent')
+          ? Math.min(100, Math.max(0, num))
+          : (base > 0 ? Math.min(100, Math.max(0, (num / base * 100))) : 0);
+
+        const profile = window.MADRAD_PROFILE;
+        if (profile) {
+          const max = Number(profile.maxDiscountPct || 0);
+          const unlimited = max >= 1000;
+          if (!unlimited && candPct > max + 1e-9) {
+            // Only now do we ask for a manager code
+            requireTicketApproval(candPct, applyNow);
+            return;
+          }
+        }
+        // If profile not loaded yet, or under limit, just apply (no prompts)
+        applyNow();
+
+        function applyNow(){
+          it.discountType  = (m === 'percent' ? 'percent' : 'amount');
+          it.discountValue = Number(num) || 0;
+          recalc();
+          renderCart();
+        }
+      };
+
+      // Undo (clear)
+      undoBtn.onclick = () => {
+        it.discountType = null;
+        it.discountValue = null;
+        recalc();
+        renderCart();
+      };
+
+      // Initialize
+      if (it.discountType === 'percent' || it.discountType === 'amount') {
+        setMode(it.discountType);
+      } else {
+        // start with no mode selected; input disabled; Apply disabled
+        setMode(null);
+      }
+
+      // Remove line
+      el.querySelector('[data-act="remove"]').onclick = () => {
+        state.items.splice(idx, 1);
+        renderCart();
+      };
+
+      box.appendChild(el);
+    });
+
+    recalc();
+  }
+
+  function renderResults(list){
+    const box = $('results'); box.innerHTML='';
+    if (!list || !list.length){ box.innerHTML = '<div class="muted">No matches.</div>'; return; }
+
+    list.forEach(it => {
+      const stock = Math.max(0, Number(it.qty) || 0);
+      const row = document.createElement('div');
+      row.className = 'item';
+      row.innerHTML = `
+        <div class="meta">
+          <div><strong>${it.name}</strong></div>
+          <div class="mono" style="font-size:12px;color:#444;">
+            ${it.sku || ''} · $${Number(it.price||0).toFixed(2)}
+            · In stock: ${stock}
+            ${it.storeLoc ? ' · '+it.storeLoc : ''} ${it.caseBinShelf ? ' · '+it.caseBinShelf : ''}
+          </div>
+        </div>
+        <div><button type="button" class="tiny"${stock<=0 ? ' disabled' : ''}>Add</button></div>
+      `;
+
+      row.querySelector('button').onclick = () => {
+        if (stock <= 0) return;
+
+        // Find existing cart line for this SKU
+        const existing = state.items.find(x => x.type==='sku' && x.sku === it.sku);
+        if (existing) {
+          // keep the latest known max stock
+          existing.maxQty = stock;
+          if ((Number(existing.qty)||1) < stock) {
+            existing.qty = (Number(existing.qty)||1) + 1;
+          } else {
+            alert(`Only ${stock} in stock for ${it.sku}.`);
+          }
+        } else {
+          state.items.push({
+          type: 'sku',
+          sku: it.sku, 
+          name: it.name,
+          price: Number(it.price) || 0,
+          qty: 1,
+          maxQty: stock,
+          discountType: null, 
+          discountValue: null,
+          storeLoc: it.storeLoc || '', 
+          caseBinShelf: it.caseBinShelf || '',
+          // carry Vendoo metadata through so it lands in Items JSON
+          vendooId: it.vendooId || '',
+          vendooUrl: it.vendooUrl || ''
+        });
+        }
+        renderCart();
+      };
+
+      box.appendChild(row);
+    });
+  }
+
+/* ---------------- discount gate ---------------- */
+function requireTicketApproval(candidatePct, onApproved){
+  if (!window.MADRAD_PROFILE) { alert('Please wait… loading permissions.'); return; }
+  const max = Number(window.MADRAD_PROFILE.maxDiscountPct || 0);
+  const unlimited = max >= 1000; // "Full"
+  if (unlimited || candidatePct <= max + 1e-9) { onApproved(); return; }
+  const code = prompt(`Total discount would be ${candidatePct.toFixed(2)}%, which exceeds your limit of ${max}%. Manager passcode required:`);
+  if (code == null || code === '') return;
+  google.script.run
+    .withSuccessHandler(ok => { if (ok) onApproved(); else alert('Invalid passcode.'); })
+    .withFailureHandler(err => alert((err && err.message) ? err.message : 'Could not verify passcode.'))
+    .apiValidateDiscountPasscode(code);
+}
+
+/* ---------------- sales viewer ---------------- */
+function setSalesStatus(text){
+  const el = $('salesStatus'); if (!el) return;
+  if (!text) { el.style.display='none'; el.textContent=''; return; }
+  el.style.display='inline-block'; el.textContent = text;
+}
+
+function renderSales(list){
+  const tb = $('salesBody'); tb.innerHTML='';
+  if (!list || !list.length){
+    tb.innerHTML = '<tr><td colspan="6" class="muted">No sales found.</td></tr>';
+    return;
+  }
+  list.forEach(s => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="mono">${s.displayTime || ''}</td>
+      <td class="mono">${s.saleId || ''}</td>
+      <td>${s.payment || ''}</td>
+      <td class="right mono">${fmt(s.total || 0)}</td>
+      <td>${s.clerk || ''}</td>
+      <td>
+        <button class="tiny" data-act="copy">Copy total</button>
+        <button class="ghost tiny" data-act="refund">Refund…</button>
+      </td>
+    `;
+    tr.querySelector('[data-act=copy]').onclick = () => {
+      navigator.clipboard?.writeText((s.total||0).toFixed(2))
+        .then(()=>setSalesStatus('Copied total '+fmt(s.total)))
+        .catch(()=>setSalesStatus('Copied '+fmt(s.total)));
+      setTimeout(()=>setSalesStatus(''), 1800);
+    };
+    tr.querySelector('[data-act=refund]').onclick = () => {
+      const base = (window.MADRAD_EXEC_URL || (location.origin+location.pathname)).replace(/\/+$/,'');
+      window.top.location.href = base + '?page=refund&saleId=' + encodeURIComponent(s.saleId || '');
+    };
+    $('salesBody').appendChild(tr);
+  });
+}
+
+function loadSalesToday(){
+  setSalesStatus('Loading…');
+  google.script.run
+    .withSuccessHandler(res => {
+      console.log('apiSales_ListToday ←', res);
+      if (!res || !res.ok) {
+        setSalesStatus((res && res.error) ? res.error : 'No data');
+        renderSales([]);
+        return;
+      }
+      renderSales(res.sales || []);
+      setSalesStatus(`Loaded Today • ${res.sales.length} sale(s)`);
+    })
+    .withFailureHandler(err => {
+      console.error('apiSales_ListToday !', err);
+      setSalesStatus((err && err.message) || 'Load failed');
+      renderSales([]);
+    })
+    .apiSales_ListToday();
+}
+
+function loadSalesRange(){
+  const a = $('fromDate').value, b = $('toDate').value;
+  if (!a || !b) { alert('Choose From and To dates'); return; }
+  setSalesStatus('Loading…');
+  google.script.run
+    .withSuccessHandler(res => {
+      console.log('apiSales_ListRange ←', res);
+      if (!res || !res.ok) {
+        setSalesStatus((res && res.error) ? res.error : 'No data');
+        renderSales([]);
+        return;
+      }
+      renderSales(res.sales || []);
+      setSalesStatus(`Loaded ${a} → ${b} • ${res.sales.length} sale(s)`);
+    })
+    .withFailureHandler(err => {
+      console.error('apiSales_ListRange !', err);
+      setSalesStatus((err && err.message) || 'Load failed');
+      renderSales([]);
+    })
+    .apiSales_ListRange(a, b);
+}
+
+/* ---------------- events ---------------- */
+$('btnSearch').onclick = () => {
+  const q = $('q').value.trim(); 
+  if (!q) return;
+
+  const btn = $('btnSearch');
+  const oldText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Searching…';
+  $('results').innerHTML = '<div class="muted">Searching…</div>';
+
+  google.script.run
+    .withSuccessHandler(list => {
+      btn.disabled = false;
+      btn.textContent = oldText || 'Search';
+      renderResults(list);
+    })
+    .withFailureHandler(err => {
+      btn.disabled = false;
+      btn.textContent = oldText || 'Search';
+      $('results').innerHTML = '<div class="muted">Search failed.</div>';
+      console.error('searchInventory error:', err);
+    })
+    .searchInventory(q);
+};
+$('btnClear').onclick = () => { $('q').value=''; $('results').innerHTML=''; };
+
+$('btnLoadToday').onclick = loadSalesToday;
+$('btnLoadRange').onclick = loadSalesRange;
+
+$('btnAddMisc').onclick = () => {
+  const amount = prompt('MISC amount ($)'); if (amount==null) return;
+  const p = Number(String(amount).replace(/[^\d.]/g,''))||0; if (p<=0) return;
+  state.items.push({ type:'misc', name:'MISC', price:p, qty:1 });
+  renderCart();
+};
+$('btnEmpty').onclick = () => { if (confirm('Clear ticket?')){ state.items=[]; state.subtotalDiscount=null; $('subDiscInput').value=''; renderCart(); } };
+
+$('applySubDisc').onclick = () => {
+  const input = $('subDiscInput').value.trim() || prompt('$ or % (e.g., $5 or 10%)');
+  const d = parseDiscountInput(input); if (!d) return alert('Enter $ or % (e.g., $5 or 10%).');
+  const t = totals(); const totalPct = (t.rawSub>0) ? ((t.lineDiscTotal + (d.type==='percent'? t.subtotal*d.value/100 : d.value)) / t.rawSub) * 100 : 0;
+  requireTicketApproval(totalPct, () => { state.subtotalDiscount = d; recalc(); });
+};
+$('clearSubDisc').onclick = () => { state.subtotalDiscount=null; $('subDiscInput').value=''; recalc(); };
+
+/* split toggle + add payment */
+$('btnSplit').onclick = () => {
+  state.split = !state.split;
+  $('splitBox').style.display = state.split ? 'block' : 'none';
+  $('payment').disabled = state.split;
+  $('btnSplit').textContent = state.split ? 'Single payment' : 'Split payment';
+  // also hide/clear the single-cash box when using split
+  if ($('cashBox')) {
+    $('cashBox').style.display = 'none';
+    if ($('cashReceived')) $('cashReceived').value = '';
+    if ($('cashChangeWrap')) $('cashChangeWrap').style.display = 'none';
+  }
+  if (state.split && state.payments.length === 0) {
+    state.payments.push({ method:'Cash', amount: currentTotal() });
+  }
+  renderPayments();
+  updateCheckoutEnabled();
+};
+$('addPay').onclick = () => { state.payments.push({ method:'Cash', amount:0 }); renderPayments(); updateCheckoutEnabled(); };
+
+/* single-payment dropdown changes */
+$('payment').addEventListener('change', () => { maybeShowCashBox(); updateCheckoutEnabled(); });
+
+function maybeShowCashBox(){
+  const m = $('payment').value;
+  const box = $('cashBox');
+  if (!box) return;
+
+  // Hide when split is on, or non-cash method
+  if (state.split || m !== 'Cash') {
+    box.style.display = 'none';
+    if ($('cashReceived')) $('cashReceived').value = '';
+    if ($('cashChangeWrap')) $('cashChangeWrap').style.display = 'none';
+    return;
+  }
+
+   // Show for single Cash — start EMPTY (no default value)
+  box.style.display = 'flex';
+  if ($('cashReceived')) $('cashReceived').value = '';
+  if ($('cashChangeWrap')) $('cashChangeWrap').style.display = 'none';
+
+   // Re-evaluate gating
+  updateCheckoutEnabled();
+}
+
+function updateCashBox(){
+  const input = $('cashReceived');
+  const wrap  = $('cashChangeWrap');
+  const out   = $('cashChange');
+  if (!input || !wrap || !out) return;
+
+  const got = Math.max(0, Number(input.value) || 0);
+  const due = totals().total;
+  const change = Math.max(0, +(got - due).toFixed(2));
+  out.textContent = fmt(change);
+  wrap.style.display = change > 1e-9 ? 'inline-block' : 'none';
+
+  // Gating updates as the amount is typed
+  updateCheckoutEnabled();
+}
+
+// live update when typing
+if ($('cashReceived')) $('cashReceived').addEventListener('input', updateCashBox);
+
+// ---- Valor helpers ----
+const CARD_METHODS = ['Visa','Mastercard','American Express','Discover'];
+const isCardMethod = (m) => CARD_METHODS.includes(String(m||'').trim());
+
+// Build Valor line items (unchanged)
+function buildValorLineItems() {
+  return (state.items || []).map(it => {
+    const qty   = Math.max(1, Number(it.qty)||1);
+    const price = Math.max(0, Number(it.price)||0);
+    const base  = qty * price;
+    let disc = 0;
+    if (it.discountType === 'percent') disc = base * (Number(it.discountValue)||0)/100;
+    if (it.discountType === 'amount')  disc = Number(it.discountValue)||0;
+    const total = Math.max(0, base - Math.min(Math.max(disc,0), base));
+    return {
+      product_code: (it.sku && String(it.sku).slice(0,24)) || String(it.name||'Item').slice(0,24),
+      quantity: qty,
+      total: total.toFixed(2)
+    };
+  });
+}
+
+
+function makeUniqueInvoice() {
+  const d = new Date();   
+  const yyyy = d.getFullYear();
+  const mm   = String(d.getMonth() + 1).padStart(2, '0');
+  const dd   = String(d.getDate()).padStart(2, '0');
+  const HH   = String(d.getHours()).padStart(2, '0');
+  const MM   = String(d.getMinutes()).padStart(2, '0');
+  const SS   = String(d.getSeconds()).padStart(2, '0');
+  const sss  = String(d.getMilliseconds()).padStart(3, '0');
+  const tail = Math.random().toString(36).slice(2, 5).toUpperCase(); // 3 chars
+  // Example: POS-20250913142607 123 - 8K2 (server will safely truncate to 24 if needed)
+  return `POS-${yyyy}${mm}${dd}${HH}${MM}${SS}${sss}-${tail}`;
+}
+
+// NEW: starts checkout, validates publish, then polls (VC07 tolerated)
+function runValorCharge(amountDollars) {
+  return new Promise((resolve, reject) => {
+    setValorBadge('wait');
+
+    const items       = buildValorLineItems();
+    const invoiceFull = makeUniqueInvoice();
+    const invoice     = invoiceFull.slice(0, 24);      // <- normalize here
+    window._valorInvoice = invoice;
+
+    console.log('[valor] starting fire-and-poll', { amountDollars, invoice, items });
+
+    // Poll cadence and limits
+    const t0 = Date.now();
+    const MAX_WAIT_MS   = 120_000; // hard cap (webhook usually 20–40s)
+    const FAST_PHASE_MS = 30_000;
+    const FAST_DELAY    = 900;
+    const SLOW_DELAY    = 2000;
+
+    // Support user cancellation (“Retry”) and “Finalize now”
+    let settled = false;
+    let canceled = false;
+
+    // A cancel function the modal buttons can call
+    window._valorCancel = (reason) => {
+      if (settled) return;
+      canceled = true;
+      settled = true;
+      setValorBadge('idle');
+      reject(new Error(reason || 'Canceled by user'));
+    };
+
+    const poll = () => {
+      if (settled || canceled) return;
+      const elapsed = Date.now() - t0;
+
+      google.script.run
+        .withSuccessHandler(st => {
+          if (settled || canceled) return;
+
+          if (st && st.found) {
+            settled = true;
+            if (st.approved) {
+              setValorBadge('ok');
+              return resolve({
+                invoice,
+                fee:   st.fee,
+                amount:st.amount,
+                total: st.total,
+                txnId: st.txn_id || ''
+              });
+            }
+            setValorBadge('err','Declined');
+            return resolve({ invoice, declined:true, state: st.state || '' });
+          }
+
+          if (elapsed > MAX_WAIT_MS) {
+            settled = true;
+            setValorBadge('err','Timeout');
+            return reject(new Error(`Timeout waiting for terminal (invoice ${invoice}).`));
+          }
+
+          const delay = (elapsed < FAST_PHASE_MS) ? FAST_DELAY : SLOW_DELAY;
+          setTimeout(poll, delay);
+        })
+        .withFailureHandler(err => {
+          if (settled || canceled) return;
+          settled = true;
+          setValorBadge('err','Error');
+          reject(err);
+        })
+        .apiValorCheckInvoice(invoice);
+    };
+
+    poll(); // start polling immediately
+
+    // Fire PUBLISH in the background (non-blocking)
+    google.script.run
+      .withSuccessHandler(res => {
+        console.log('[valor] publish ack (non-blocking) ←', res);
+      })
+      .withFailureHandler(err => {
+        console.warn('[valor] publish call failed (non-blocking):', err);
+      })
+      .apiStartValorCheckoutUI(Number(amountDollars)||0, invoice, items);
+  });
+}
+
+// Checkout button (split-aware: per-leg card publishing + single save at end)
+$('btnCheckout').onclick = () => {
+  if (!state.items.length) return alert('No items to checkout.');
+
+  const usingSplit = !!state.split;
+  const t = totals();
+
+  const payload = {
+    items: state.items,
+    fees: 0,
+    clerk: $('clerk').value.trim(),
+    subtotalDiscount: state.subtotalDiscount || null
+  };
+
+  // ---------- helpers ----------
+const saveSale = (pay) => new Promise((resolve, reject) => {
+  google.script.run
+    .withSuccessHandler(res => resolve(res))
+    .withFailureHandler(err => reject(err))
+    .apiSale_Save(JSON.stringify(pay));
+});
+
+/* === Valor “Finalize now / Retry” modal helpers (HOISTED for split + single) === */
+function showEscalation(invoice, amount) {
+  $('vmFinalizeNow').onclick = async () => {
+    // MRAD-START split-finalize: do NOT cancel poll while split runner is active
+    if (!window._splitRunnerActive) {
+      try { if (window._valorCancel) window._valorCancel('force finalize'); } catch(_){}
+    }
+    closeValorEscalate();
+    // MRAD-END split-finalize
+
+    const inv = String(window._valorInvoice || invoice || '');
+    const attempt = 'A1';
+
+    // If split runner is active, finalize the leg only (no sale save here)
+    if (window._splitRunnerActive) {
+      try {
+        setValorBadge('wait','Pending');
+        const legRes = await new Promise((resolve, reject) => {
+          google.script.run
+            .withSuccessHandler(resolve)
+            .withFailureHandler(reject)
+            .apiPos_FinalizeLeg(JSON.stringify({ invoice: inv, attempt }));
+        });
+        try { if (typeof window._onSplitLegFinalized === 'function') window._onSplitLegFinalized(legRes||{}); } catch(_){}
+        setValorBadge('ok','Approved');
+      } catch (err) {
+        try { if (typeof window._onSplitLegDeclined === 'function') window._onSplitLegDeclined(); } catch(_){}
+        $('btnCheckout').disabled = false; $('btnCheckout').textContent = 'Complete Sale';
+        setValorBadge('err','Save Failed');
+        alert('Finalize failed: ' + (err && err.message ? err.message : err));
+      }
+      return; // IMPORTANT: do not proceed to single-sale flow
+    }
+
+    // === Non-split (original finalize -> single save) ===
+    const posPayload = Object.assign({}, payload, {
+      fees: 0,
+      valor: { invoice: inv, attempt, status: 'pending', finalizedBy: 'manual' }
+    });
+
+    try {
+      setValorBadge('wait','Pending');
+      const res = await new Promise((resolve, reject) => {
+        google.script.run
+          .withSuccessHandler(resolve)
+          .withFailureHandler(reject)
+          .apiPos_FinalizeNow(JSON.stringify({ invoice: inv, attempt, posPayload }));
+      });
+      $('saveMsg').textContent =
+        `Saved (PENDING CARD): ${res.saleId} | Subtotal ${fmt(totals().subtotal)} + Tax ${fmt(totals().tax)} = Total ${fmt(totals().total)} — waiting on terminal…`;
+      resetUIAfterSave(res);
+    } catch (err) {
+      $('btnCheckout').disabled = false; $('btnCheckout').textContent = 'Complete Sale';
+      setValorBadge('err','Save Failed');
+      alert('Save failed: ' + (err && err.message ? err.message : err));
+    }
+  };
+
+  $('vmDeclined').onclick = () => {
+    try { if (window._valorCancel) window._valorCancel('user retry'); } catch(_){}
+    closeValorEscalate();
+
+    if (window._splitRunnerActive) {
+      try { if (typeof window._onSplitLegDeclined === 'function') window._onSplitLegDeclined(); } catch(_){}
+      $('btnCheckout').disabled = false; $('btnCheckout').textContent = 'Complete Sale';
+      setValorBadge('err','Declined');
+      return;
+    }
+
+    $('btnCheckout').disabled = false; $('btnCheckout').textContent = 'Complete Sale';
+    setValorBadge('err','Declined');
+  };
+
+  const keepBtn = $('vmKeepWaiting');
+  if (keepBtn) keepBtn.onclick = () => { closeValorEscalate(); };
+
+  $('vmInvoice').textContent = String(invoice || '');
+  $('vmAmount').textContent  = Number(amount||0).toFixed(2);
+  $('valorDim').style.display = 'block';
+  $('valorModal').style.display = 'flex';
+
+  // soft “reminder” beep after ~30s, then every 10s
+  let vmRemindTimer = null, vmRemindInterval = null;
+  function playBeep() {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      const ctx = new Ctx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      gain.gain.value = 0.0001;
+      osc.connect(gain); gain.connect(ctx.destination);
+      gain.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.005);
+      osc.start();
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.2);
+      osc.stop(ctx.currentTime + 0.21);
+    } catch(_) {}
+  }
+  clearTimeout(vmRemindTimer); clearInterval(vmRemindInterval);
+  vmRemindTimer = setTimeout(() => {
+    playBeep();
+    vmRemindInterval = setInterval(playBeep, 10_000);
+  }, 30_000);
+  // remember handles on window so we can clear from close()
+  window._vmRemindTimer = vmRemindTimer;
+  window._vmRemindInterval = vmRemindInterval;
+}
+function closeValorEscalate() {
+  if (window._vmRemindTimer) { clearTimeout(window._vmRemindTimer); window._vmRemindTimer = null; }
+  if (window._vmRemindInterval) { clearInterval(window._vmRemindInterval); window._vmRemindInterval = null; }
+  $('valorDim').style.display = 'none';
+  $('valorModal').style.display = 'none';
+}
+
+  // Base reset; we’ll reuse this for both split and non-split
+  window.resetUIAfterSaveBase = function(res){
+    $('btnCheckout').disabled = false; $('btnCheckout').textContent = 'Complete Sale';
+    setValorBadge('idle');
+    const sub = (res && typeof res.subtotal === 'number') ? res.subtotal : totals().subtotal;
+    const tax = (res && typeof res.tax === 'number') ? res.tax : totals().tax;
+    const tot = (res && typeof res.total === 'number') ? res.total : totals().total;
+    $('saveMsg').textContent = `Saved: ${res.saleId} | Subtotal ${fmt(sub)} + Tax ${fmt(tax)} = Total ${fmt(tot)}`;
+
+    try {
+      if (res && Array.isArray(res.logs)) {
+        console.groupCollapsed(`apiSale_Save logs (${res.logs.length})`);
+        res.logs.forEach(line => console.log(line));
+        console.groupEnd();
+        const box = document.getElementById('saveLogsBox');
+        const pre = document.getElementById('saveLogs');
+        if (box && pre) { pre.textContent = res.logs.join('\n'); box.open = false; }
+      } else {
+        const box = document.getElementById('saveLogsBox');
+        const pre = document.getElementById('saveLogs');
+        if (box && pre) { pre.textContent = 'no logs'; box.open = false; }
+      }
+    } catch(_) {}
+
+    if ($('q')) $('q').value = '';
+    if ($('results')) $('results').innerHTML = '';
+
+    state.items=[]; state.subtotalDiscount=null; $('subDiscInput').value='';
+    state.split=false; state.payments=[]; $('splitBox').style.display='none';
+    $('payment').disabled=false; $('payment').value='';
+    $('btnSplit').textContent='Split payment';
+    if ($('cashBox')) $('cashBox').style.display = 'none';
+    if ($('cashReceived')) $('cashReceived').value = '';
+    if ($('cashChangeWrap')) { $('cashChangeWrap').style.display = 'none'; $('cashChange').textContent = '$0.00'; }
+    renderPayments(); renderCart(); updateCheckoutEnabled();
+  };
+
+  // --- split runner (per-leg) ---
+  async function runSplitSequence() {
+    const btn = $('btnCheckout');
+    const legs = (state.payments||[]).map(p => ({ method: p.method, amount: +(Number(p.amount)||0).toFixed(2) }));
+    if (!legs.length) { alert('Please complete the split so Paid ≥ Total.'); return; }
+
+    // Validate totals
+    const sum = legs.reduce((s,p)=>s+p.amount,0);
+    if (Math.abs(sum - t.total) > 0.01) {
+      alert('Split amounts must equal the total.'); return;
+    }
+
+    btn.disabled = true; btn.textContent = 'Processing split…';
+    setValorBadge('idle');
+    $('saveMsg').textContent = '';
+
+    // Orchestration flags for modal -> runner
+    window._splitRunnerActive = true;
+    window._onSplitLegFinalized = null;
+    window._onSplitLegDeclined  = null;
+    const valorCharges = []; // per-card leg audit
+
+    for (let i = 0; i < legs.length; i++) {
+      const leg = legs[i];
+      const label = `(${i+1}/${legs.length})`;
+
+      if (isCardMethod(leg.method)) {
+        btn.textContent = `Sending to terminal ${label}…`;
+
+        // MRAD-START split-runner race
+        // 1) Start publish + poll
+        let publishErr = null;
+        const pollPromise = (async () => {
+          try {
+            return await runValorCharge(leg.amount);   // returns {declined?:bool} or approved
+          } catch (e) {
+            publishErr = e;
+            return { error: true, err: e };
+          }
+        })();
+
+        // 2) Arm the escalation modal after ~10s (same as single-pay)
+        const escTimer = setTimeout(() => {
+          const invoice = (window._valorInvoice || '');
+          if (invoice) showEscalation(invoice, leg.amount);
+        }, 10_000);
+
+        // 3) Provide hooks the modal will call
+        const manualFinalizePromise = new Promise((resolve) => {
+          window._onSplitLegFinalized = (legRes) => resolve({ kind:'manual-finalize', legRes: (legRes||{}) });
+          window._onSplitLegDeclined  = ()       => resolve({ kind:'manual-decline' });
+        });
+
+        // 4) Wait for whichever finishes first: poll OR manual finalize
+        const outcome = await Promise.race([
+          pollPromise.then(r => ({ kind:'poll', result:r })),
+          manualFinalizePromise
+        ]);
+
+        clearTimeout(escTimer);
+
+        // Handle publish/poll transport errors
+        if (outcome.kind === 'poll' && outcome.result && outcome.result.error) {
+          $('btnCheckout').disabled = false; $('btnCheckout').textContent = 'Complete Sale';
+          setValorBadge('err','Error');
+          alert('Terminal error: ' + (publishErr && publishErr.message ? publishErr.message : publishErr));
+          window._splitRunnerActive = false;
+          return;
+        }
+
+        // If operator clicked "Declined/Retry" in modal: keep same leg and republish
+        if (outcome.kind === 'manual-decline') {
+          // Let the runner simply loop again on the same index
+          i--; // counteract the upcoming i++ of the for-loop
+          try { closeValorEscalate(); } catch(_){}
+          $('btnCheckout').disabled = false; $('btnCheckout').textContent = 'Complete Sale';
+          setValorBadge('err','Declined');
+          continue;
+        }
+
+        // Approved path:
+        // - If manual finalize fired first, the modal already called apiPos_FinalizeLeg and gave us legRes.
+        // - If poll fired first and was approved, we call apiPos_FinalizeLeg now.
+        let legRes = null;
+
+        if (outcome.kind === 'manual-finalize') {
+          legRes = outcome.legRes || {};
+        } else {
+          // poll outcome
+          const pollResult = outcome.result || {};
+          if (pollResult.declined) {
+            try { closeValorEscalate(); } catch(_){}
+            $('btnCheckout').disabled = false; $('btnCheckout').textContent = 'Complete Sale';
+            setValorBadge('err','Declined');
+            alert('Card declined at terminal. You can retry this leg or change payment.');
+            window._splitRunnerActive = false;
+            return;
+          }
+          // Finalize now that webhook/poll says Approved
+          try {
+            setValorBadge('wait','Pending');
+            const inv = String(window._valorInvoice || '');
+            legRes = await new Promise((resolve, reject) => {
+              google.script.run
+                .withSuccessHandler(resolve)
+                .withFailureHandler(reject)
+                .apiPos_FinalizeLeg(JSON.stringify({ invoice: inv, attempt: 'A1' }));
+            });
+          } catch (err) {
+            $('btnCheckout').disabled = false; $('btnCheckout').textContent = 'Complete Sale';
+            setValorBadge('err','Finalize Failed');
+            alert('Finalize failed: ' + (err && err.message ? err.message : err));
+            window._splitRunnerActive = false;
+            return;
+          }
+        }
+
+        // Close modal if it happened to open while we were racing
+        try { closeValorEscalate(); } catch(_){}
+        setValorBadge('ok','Approved');
+
+        // Record card audit and show progress
+        const inv = String(window._valorInvoice || '');
+        valorCharges.push({
+          invoice: inv,
+          amount: +leg.amount.toFixed(2),
+          status: 'approved',
+          brand: String(legRes && legRes.brand || ''),
+          last4: String(legRes && legRes.last4 || ''),
+          auth:  String(legRes && legRes.auth  || ''),
+          txnId: String(legRes && legRes.txnId || ''),
+          epiId: String(legRes && legRes.epiId || '')
+        });
+        $('saveMsg').textContent = `Approved ${label}: ${fmt(leg.amount)} — continuing…`;
+        // MRAD-END split-runner race
+      } else if (leg.method === 'Cash') {
+        btn.textContent = `Cash received ${label}…`;
+        await new Promise(r => setTimeout(r, 250)); // tiny UX pause
+      } else {
+        alert(`Unsupported payment method in split: ${leg.method}`);
+        btn.disabled = false; btn.textContent = 'Complete Sale';
+        window._splitRunnerActive = false;
+        return;
+      }
+    }
+
+    // All legs finished — single save with full payments + valor.charges[].
+    const finalPayload = Object.assign({}, payload, {
+      payments: legs,
+      valor: { status:'approved', charges: valorCharges }
+    });
+
+    btn.textContent = 'Saving…';
+    try {
+      const res = await saveSale(finalPayload);
+      resetUIAfterSave(res);
+    } catch (err) {
+      btn.disabled = false; btn.textContent = 'Complete Sale';
+      setValorBadge('err','Save Failed');
+      alert('Save failed: ' + (err && err.message ? err.message : err));
+    } finally {
+      window._splitRunnerActive = false;
+      window._onSplitLegFinalized = null;
+      window._onSplitLegDeclined  = null;
+    }
+  }
+
+  // ---- branch by mode ----
+  if (usingSplit) {
+    return runSplitSequence();
+  }
+
+  // ---------- NON-SPLIT: preserve existing behavior ----------
+  const method = $('payment').value;
+  if (!method) return alert('Please select a payment method, or use Split payment.');
+  payload.paymentMethod = method;
+  if (method === 'Cash') {
+    const got = Math.max(0, Number($('cashReceived')?.value) || 0);
+    payload.payments = [{ method: 'Cash', amount: +got.toFixed(2) }];
+  }
+
+  const btn = $('btnCheckout');
+  const oldText = btn.textContent;
+
+  let cardAmount = 0;
+  if (['Visa','Mastercard','American Express','Discover'].includes(method)) cardAmount = +t.total.toFixed(2);
+
+  btn.disabled = true; btn.textContent = (cardAmount > 0) ? 'Waiting on terminal…' : 'Saving…';
+  $('saveMsg').textContent = '';
+
+  // timers for the modal reminder
+  let vmRemindTimer = null;
+  let vmRemindInterval = null;
+
+  function playBeep() {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      const ctx = new Ctx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      gain.gain.value = 0.0001;
+      osc.connect(gain); gain.connect(ctx.destination);
+      gain.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.005);
+      osc.start();
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.2);
+      osc.stop(ctx.currentTime + 0.21);
+    } catch(_) {}
+  }
+
+  // (Modal helpers hoisted above for use in both split and single paths)
+  // showEscalation(invoice, amount)
+  // closeValorEscalate()
+
+  // --- Non-card: save immediately ---
+  if (cardAmount <= 0) {
+    saveSale(payload).then(window.resetUIAfterSave).catch(err => {
+      $('btnCheckout').disabled = false; $('btnCheckout').textContent = oldText || 'Complete Sale';
+      setValorBadge('err','Save Failed');
+      alert('Save failed: ' + (err && err.message ? err.message : err));
+    });
+    return;
+  }
+
+  // --- Card path: fire publish; show Finalize-Now after ~10s ---
+  let escalTimer = null;
+  const p = runValorCharge(cardAmount);
+
+  escalTimer = setTimeout(() => {
+    const invoice = (window._valorInvoice || '');
+    if (invoice) showEscalation(invoice, cardAmount);
+  }, 10_000);
+
+  p.then((result) => {
+    clearTimeout(escalTimer);
+
+    if (result.declined) {
+      closeValorEscalate();
+      $('btnCheckout').disabled = false; $('btnCheckout').textContent = 'Complete Sale';
+      setValorBadge('err','Declined');
+      alert('Card declined at terminal. You can retry the card or change payment.');
+      return;
+    }
+
+    setValorBadge('ok', 'Approved');
+
+    // If the 10s timer hasn't shown the modal yet, show it now so
+    // the clerk can press “Finalize now” to write the sale row.
+    const invoice = (window._valorInvoice || '');
+    if (invoice) showEscalation(invoice, cardAmount);
+  })
+};
+
+/* keyboard: enter to search */
+$('q').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); $('btnSearch').click(); } });
+
+/* login/profile + tax hint */
+try { window.MADRAD_PROFILE = JSON.parse(localStorage.getItem('mrad_profile') || 'null'); } catch(_){}
+if (window.MADRAD_PROFILE && $('clerk')) {
+  $('clerk').value = window.MADRAD_PROFILE.user || '';
+  $('clerk').readOnly = true;
+}
+google.script.run
+  .withSuccessHandler(function(profile){
+    window.MADRAD_PROFILE = profile;
+    localStorage.setItem('mrad_profile', JSON.stringify(profile));
+
+    if ($('clerk')) {
+      $('clerk').value = profile.user || $('clerk').value || '';
+      $('clerk').readOnly = true;
+    }
+  })
+  .withFailureHandler(function(){
+    localStorage.removeItem('mrad_token');
+    localStorage.removeItem('mrad_profile');
+    window.location.replace('<?= execUrl ?>?page=login');
+  })
+  .apiVerify(token);
+
+(function initTax(){ $('taxTag').textContent='Tax: from "Sales Tax" sheet'; })();
+setValorBadge('idle');
+renderCart();
+renderPayments();
+updateCheckoutEnabled();   // start with button correctly disabled
+const today = new Date();
+const yyyy = today.getFullYear();
+const mm = String(today.getMonth()+1).padStart(2,'0');
+const dd = String(today.getDate()).padStart(2,'0');
+$('fromDate').value = `${yyyy}-${mm}-${dd}`;
+$('toDate').value   = `${yyyy}-${mm}-${dd}`;
+
+loadSalesToday(); // show today on open
+
+// --- Vendoo Delist Queue client ---
+// Small helpers local to this block
+  function fmtMoney(n){
+    try { return new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(n)||0); }
+    catch(_) { return '$' + (Number(n)||0).toFixed(2); }
+  }
+  function fmtDate(d){
+    try { return new Date(d).toLocaleString(); }
+    catch(_) { return String(d); }
+  }
+
+  // Centralized trace buffer that mirrors to console + (best-effort) Apps Script logs
+  function vdLogFlush_(trace) {
+    try {
+      google.script.run.apiClientLog({
+        scope: 'VendooDelist',
+        when: new Date().toISOString(),
+        trace: Array.isArray(trace) ? trace : [String(trace || '')]
+      });
+    } catch (_) { /* ignore */ }
+  }
+  function vdTrace_() {
+    const buf = [];
+    return {
+      add(...a){
+        const line = a.map(x => (typeof x === 'string' ? x : JSON.stringify(x))).join(' ');
+        buf.push(line);
+        try { console.log('[VendooDelist]', line); } catch(_){}
+      },
+      flush(){ vdLogFlush_(buf.slice()); },
+      buffer(){ return buf; }
+    };
+  }
+
+  // Load list from server
+  function vendooDelistLoad(){
+    try { console.log('[VendooDelist] load start'); } catch(_){}
+
+    const btn = document.getElementById('vendooDelistRefresh');
+    const tb  = document.getElementById('vendooDelistBody');
+
+    if (tb) {
+      tb.innerHTML = '<tr><td colspan="7" style="padding:8px; color:#64748b;">Loading…</td></tr>';
+    }
+    if (btn) {
+      btn.disabled = true;
+      btn.dataset._label = btn.textContent || 'Refresh';
+      btn.textContent = 'Refreshing…';
+    }
+
+    function _done(){
+      if (btn) { btn.disabled = false; btn.textContent = btn.dataset._label || 'Refresh'; }
+    }
+
+    google.script.run
+      .withSuccessHandler(function(res){
+        console.log('[VendooDelist] apiVendoo_ListPending ←', res);
+        const arr =
+          Array.isArray(res) ? res :
+          (res && Array.isArray(res.list))  ? res.list  :
+          (res && Array.isArray(res.rows))  ? res.rows  :
+          (res && Array.isArray(res.items)) ? res.items : [];
+        vendooDelistRender(arr);
+        _done();
+      })
+      .withFailureHandler(function(err){
+        console.error('[VendooDelist] list error', err);
+        if (tb) tb.innerHTML =
+          '<tr><td colspan="7" style="padding:8px;color:#dc2626;">Failed to load: ' +
+          String(err) + '</td></tr>';
+        _done();
+      })
+      .apiVendoo_ListPending({ maxHours: 72 });
+  }
+
+  // Fully instrumented renderer
+  function vendooDelistRender(list){
+    const T = vdTrace_();
+    try {
+      T.add('render:start');
+
+      const tb = document.getElementById('vendooDelistBody');
+      if (!tb){
+        T.add('render:tbody-missing');
+        T.flush();
+        return;
+      }
+
+      const arr = Array.isArray(list) ? list : [];
+      T.add('render:list-len', arr.length);
+
+      if (!arr.length){
+        tb.innerHTML =
+        '<tr><td colspan="8" style="padding:8px; color:#64748b;">No items waiting to be delisted.</td></tr>';
+        T.add('render:empty-state-set');
+        T.flush();
+        return;
+      }
+
+      const rows = arr.map(function(it, idx){
+        const ageH = Number(it.ageHours || 0);
+        let bg = '';
+        if (ageH >= 3) bg = 'background:#fee2e2;';       // red
+        else if (ageH >= 2) bg = 'background:#ffedd5;';  // orange
+        else if (ageH >= 1) bg = 'background:#fef9c3;';  // yellow
+
+        const hasUrl = it.vendooUrl && String(it.vendooUrl).trim();
+        // Visual only (no click). Tooltip still shows the URL if present.
+        const urlHtml = hasUrl
+          ? '<span title="' + it.vendooUrl + '">Open</span>'
+          : '<span style="color:#94a3b8;">(none)</span>';
+
+        T.add('render:row', idx, { sku: it.sku || '', saleId: it.saleId || '', ageH });
+
+        return (
+          '<tr style="' + bg + '">' +
+            '<td style="padding:6px; border-bottom:1px solid #e2e8f0;">' + fmtDate(it.saleTs || it.addedAt) + '</td>' +
+            '<td style="padding:6px; border-bottom:1px solid #e2e8f0;">' + (it.saleId || '') + '</td>' +
+            '<td style="padding:6px; border-bottom:1px solid #e2e8f0;">' + (it.sku || '') + '</td>' +
+            // NEW: Item title (truncate visually; full in title attr)
+            '<td style="padding:6px; border-bottom:1px solid #e2e8f0; max-width:360px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"' +
+              ' title="' + (it.title || '').replace(/"/g,'&quot;') + '">' + (it.title || '') + '</td>' +
+            '<td style="padding:6px; border-bottom:1px solid #e2e8f0;">' + (Number(it.qty||1)) + '</td>' +
+            '<td style="padding:6px; border-bottom:1px solid #e2e8f0;">' + fmt(Number(it.price||0)) + '</td>' +
+            '<td style="padding:6px; border-bottom:1px solid #e2e8f0;">' + urlHtml + '</td>' +
+            '<td style="padding:6px; border-bottom:1px solid #e2e8f0;">' +
+              '<button class="tiny" type="button" data-act="delist" data-sku="' + (it.sku||'') + '"' +
+                      ' data-saleid="' + (it.saleId||'') + '" data-url="' + (it.vendooUrl||'') + '">Delist</button>' +
+            '</td>' +
+          '</tr>'
+        );
+      }).join('');
+
+      tb.innerHTML = rows;
+      T.add('render:tbody-set', 'chars=' + rows.length);
+
+      // Bind buttons
+      // MRAD-START fix vendoo delist binding: bind by data attribute (button has data-act="delist")
+      const btns = Array.from(tb.querySelectorAll('button[data-act="delist"]'));
+      // MRAD-END
+      T.add('render:bind-buttons', 'count=' + btns.length);
+
+      btns.forEach(function(btn){
+        btn.onclick = function(){
+          const state = btn.getAttribute('data-state') || 'delist';
+          const sku   = btn.getAttribute('data-sku') || '';
+          const sale  = btn.getAttribute('data-saleid') || '';
+          const url   = btn.getAttribute('data-url') || '';
+
+          T.add('click', { state, sku, sale, hasUrl: !!url });
+
+          if (state === 'delist'){
+            const jump = (url && url.trim()) ? url : 'https://web.vendoo.co/app/?';
+            try { window.open(jump, '_blank'); T.add('click:opened', jump); }
+            catch(err){ T.add('click:open-error', String(err)); }
+            btn.textContent = 'Confirm Delist';
+            btn.setAttribute('data-state', 'confirm');
+            T.add('click:state->confirm');
+            T.flush(); // flush so we see the click in logs immediately
+          } else {
+            btn.disabled = true;
+            btn.textContent = 'Confirming…';
+            T.add('confirm:calling-api', { sku, sale, url });
+
+            google.script.run
+              .withSuccessHandler(function(){
+                btn.disabled = false;
+                T.add('confirm:success');
+                T.flush();
+                vendooDelistLoad();
+              })
+              .withFailureHandler(function(err){
+                btn.disabled = false;
+                btn.textContent = 'Confirm Delist';
+                T.add('confirm:failure', String(err));
+                T.flush();
+                try { alert('Failed to confirm delist: ' + err); } catch(_){}
+              })
+              .apiVendoo_ManualConfirmDelist({ sku: sku, sale_id: sale, vendoo_item_url: url });
+          }
+        };
+      });
+
+      T.flush();
+    } catch (err) {
+      // Make sure we still log and then surface the error
+      T.add('render:exception', String((err && err.message) || err));
+      T.flush();
+      throw err;
+    }
+  }
+
+  // Wire refresh button + initial load
+  document.addEventListener('click', function(ev){
+    if (ev && ev.target && ev.target.id === 'vendooDelistRefresh') {
+      vendooDelistLoad();
+    }
+  });
+  document.addEventListener('DOMContentLoaded', function(){
+    vendooDelistLoad();
+  });
+
+  (function(){
+    // Wrapper that always calls the current "Base", then refreshes UI.
+    // (Base is defined as window.resetUIAfterSaveBase inside the checkout click handler.)
+    window.resetUIAfterSave = function(res){
+      try { if (window.resetUIAfterSaveBase) window.resetUIAfterSaveBase(res); } catch(_){}
+      try {
+        console.log('[Post-Save] refresh vendoo & sales');
+        vendooDelistLoad();     // refresh the Vendoo Delist Queue automatically
+        loadSalesToday();       // refresh the Sales (Today) table automatically
+      } catch(_){}
+    };
+  })();
+
+ 
+
+</script>
+
+  <!-- === Valor “Taking longer than usual” modal (inserted above </body>) === -->
+  <div id="valorDim" style="position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;z-index:9998;"></div>
+  <div id="valorModal" style="position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:9999;">
+    <div style="background:#fff;padding:16px 18px;width:420px;max-width:92%;border-radius:12px;box-shadow:0 12px 30px rgba(0,0,0,.25);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;">
+      <h3 style="margin:0 0 6px 0;font-size:18px;">Make a Selection…</h3>
+      <p style="margin:0 0 10px 0;font-size:14px;line-height:1.35;">
+        If the terminal already shows <b>Approved</b> Finalize now.
+        If it shows <b>Declined or Errors</b> you can retry immediately.
+      </p>
+      <div style="font-size:13px;margin:8px 0 12px 0;padding:8px;background:#f7f7f7;border-radius:8px;">
+        <div>Invoice: <code id="vmInvoice"></code></div>
+        <div>Card amount: $<span id="vmAmount"></span></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button id="vmFinalizeNow" style="padding:8px 12px;border-radius:8px;border:0;background:#2563eb;color:#fff;cursor:pointer">Terminal Approved — finalize</button>
+        <button id="vmDeclined" class="ghost" style="padding:8px 12px;border-radius:8px;border:1px solid #ddd;background:#fff;cursor:pointer"> Resend Now/Card Declined/Error — retry</button>
+        
+      </div>
+    </div>
+  </div>
+  <!-- === /Valor modal === -->
+
+
+</body>
+</html>

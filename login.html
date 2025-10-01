@@ -1,0 +1,139 @@
+<style>
+  body{font-family:Arial, sans-serif;background:linear-gradient(135deg,#1a1a1a,#2a2a2a);margin:0;height:100vh;display:flex;align-items:center;justify-content:center}
+  .login-card{background:#fff;padding:32px;border-radius:16px;box-shadow:0 8px 30px rgba(0,0,0,.25);width:100%;max-width:380px;box-sizing:border-box}
+  .login-card h2{margin:0 0 20px;font-size:24px;font-weight:bold;text-align:center;color:#111}
+  .input-group{position:relative;margin-bottom:18px}
+  .input-group input{width:100%;padding:12px 14px;border-radius:8px;border:1px solid #ccc;font-size:16px;box-sizing:border-box;background:#eef4ff}
+  .input-group button{position:absolute;right:6px;top:50%;transform:translateY(-50%);padding:6px 10px;border:none;background:#eee;border-radius:6px;cursor:pointer;font-size:13px;transition:background .2s}
+  .input-group button:hover{background:#ddd}
+  .caps-warn{display:none;color:#b91c1c;font-size:12px;margin-top:4px}
+  #btnLogin{width:100%;padding:12px;border:none;border-radius:8px;background:linear-gradient(135deg,#ff00cc,#3333ff);color:#fff;font-size:16px;font-weight:bold;cursor:pointer;transition:transform .1s,box-shadow .1s}
+  #btnLogin:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.2)}
+  #msg{margin-top:12px;text-align:center;color:#b91c1c;font-size:14px}
+</style>
+
+<div class="login-card">
+  <h2>Mad Rad — Sign In</h2>
+
+  <div class="input-group">
+    <input id="loginId" placeholder="Login ID" autocomplete="username" />
+  </div>
+
+  <div class="input-group">
+    <input id="password" placeholder="Password" type="password" autocomplete="current-password" />
+    <button id="togglePw" type="button" onclick="togglePw()">Show</button>
+  </div>
+  <div id="capsWarn" class="caps-warn">Caps Lock is ON</div>
+
+  <button id="btnLogin" onclick="onLogin()">
+    <span id="btnText">Sign In</span>
+    <span id="btnSpinner" style="display:none;margin-left:8px;">•••</span>
+  </button>
+  <div id="msg"></div>
+</div>
+
+<script>
+  // ---- global functions so inline onclick works ----
+  function togglePw(){
+    var pw = document.getElementById('password');
+    var btn = document.getElementById('togglePw');
+    var isPw = pw.type === 'password';
+    pw.type = isPw ? 'text' : 'password';
+    btn.textContent = isPw ? 'Hide' : 'Show';
+    pw.focus();
+  }
+
+  function onLogin(){
+  var btn = document.getElementById('btnLogin');
+  var btnText = document.getElementById('btnText');
+  var spin = document.getElementById('btnSpinner');
+  var msgEl = document.getElementById('msg');
+
+  if (btn.dataset.busy === '1') return;
+
+  btn.dataset.busy = '1';
+  btn.disabled = true;
+  btnText.textContent = 'Signing in…';
+  spin.style.display = 'inline';
+  msgEl.textContent = '';
+
+  var login = document.getElementById('loginId').value.trim();
+  var pass  = document.getElementById('password').value;
+  localStorage.setItem('mrad_last_login', login);
+
+  // Safety timeout so the UI never gets "stuck"
+  var t = setTimeout(function(){
+    btn.dataset.busy = '0';
+    btn.disabled = false;
+    btnText.textContent = 'Sign In';
+    spin.style.display = 'none';
+    msgEl.textContent = 'Taking longer than usual. Please try again.';
+  }, 12000); // 12s
+
+  google.script.run
+    .withSuccessHandler(function(res){
+      clearTimeout(t);
+      localStorage.setItem('mrad_token', res.token);
+      localStorage.setItem('mrad_profile', JSON.stringify(res.profile));
+
+      // Decide base using parent page URL if available; otherwise fall back to execUrl
+      var server = '<?= execUrl ?>'.replace(/\/+$/,'');       // always the /exec URL
+      var ref = (document.referrer || '').replace(/#.*$/,''); // parent page
+      var base = /\/dev(?:\/)?(?:\?.*)?$/.test(ref)
+                ? ref.replace(/\?.*$/,'').replace(/\/+$/,'')  // keep /dev
+                : server;                                     // use /exec
+
+      var page = (res && res.profile && res.profile.canPOS) ? 'pos'
+              : (res && res.profile && res.profile.canIntake) ? 'intake'
+              : 'intake'; // safe default
+
+      // Redirect (no need to read window.top; the parent will navigate)
+      window.top.location.replace(base + '?page=' + page);
+    })
+
+
+    .withFailureHandler(function(err){
+      clearTimeout(t);
+      msgEl.textContent = (err && err.message) ? err.message : 'Login failed';
+      btn.dataset.busy = '0';
+      btn.disabled = false;
+      btnText.textContent = 'Sign In';
+      spin.style.display = 'none';
+    })
+    .apiLogin(login, pass);
+}
+
+  // ---- page init ----
+   (function init(){
+    // 1) Warm server + prime cache as soon as page shows (non-blocking)
+    try { google.script.run.withFailureHandler(function(){}).apiWarmLogin(); } catch(_) {}
+
+    // Clear any stale session
+    localStorage.removeItem('mrad_token');
+    localStorage.removeItem('mrad_profile');
+
+    // Restore last username
+    var savedLogin = localStorage.getItem('mrad_last_login');
+    if (savedLogin) document.getElementById('loginId').value = savedLogin;
+
+    // 2) OPTIONAL NICE TOUCH: also warm on first focus of either input
+    ['loginId','password'].forEach(function(id){
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('focus', function once(){
+        try { google.script.run.withFailureHandler(function(){}).apiWarmLogin(); } catch(_) {}
+        el.removeEventListener('focus', once);
+      }, { once: true });
+    });
+
+    // Caps Lock detection
+    var pw = document.getElementById('password');
+    var capsWarn = document.getElementById('capsWarn');
+    function caps(e){ capsWarn.style.display = (e.getModifierState && e.getModifierState('CapsLock')) ? 'block' : 'none'; }
+    pw.addEventListener('keydown', caps);
+    pw.addEventListener('keyup', caps);
+
+    // Enter-to-submit
+    document.addEventListener('keydown', function(e){ if (e.key === 'Enter') onLogin(); });
+  })();
+</script>

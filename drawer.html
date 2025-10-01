@@ -1,0 +1,518 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Cash Drawer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0;background:#fafafa;color:#111}
+      header{background:#fff;border-bottom:1px solid #eee}
+      header .wrap{max-width:900px;margin:0 auto;padding:10px 16px;display:flex;justify-content:space-between;align-items:center}
+      h1{font-size:18px;margin:0}
+      main .wrap{max-width:900px;margin:0 auto;padding:16px}
+      .card{background:#fff;border:1px solid #eee;border-radius:12px;padding:14px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+      .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+      .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+      .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+      input,button,select,textarea{font-size:16px}
+      input,select,textarea{border:1px solid #ddd;border-radius:10px;padding:10px 12px;background:#fff}
+      button{border-radius:10px;padding:10px 12px;border:1px solid #0ea5e9;background:#0ea5e9;color:#fff;cursor:pointer}
+      button[disabled]{ opacity:.6; cursor:not-allowed; }
+      .tiny{padding:6px 8px;border-radius:8px;font-size:14px}
+      .muted{color:#555}
+      table{width:100%;border-collapse:separate;border-spacing:0 6px}
+      td{padding:4px 6px}
+      td label{display:block}
+      td input[type=number]{width:110px;text-align:right}
+      .tot{font-weight:bold}
+    </style>
+  </head>
+  <body>
+
+    <script>
+      window.MADRAD_PAGE = 'drawer';
+      window.MADRAD_EXEC_URL = '<?= execUrl ?>';
+    </script>
+    <?!= include('nav'); ?>
+
+  <header>
+    <div class="wrap">
+      <h1>Cash Drawer</h1>
+      <div id="closeReminder"
+          style="display:none;margin:12px 0;padding:10px 12px;border-radius:10px;background:#fff3cd;color:#7a5b00;border:1px solid #ffe69c;">
+        Reminder: Closing cash drawer count hasn’t been recorded yet. Please complete it before leaving.
+      </div>
+
+      <div class="muted">Record opening (by 12:00 PM) and closing (by 6:30 PM)</div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="card">
+      <div class="row">
+        <label>Drawer #
+          <input id="drawer" type="number" min="1" step="1" value="1" style="width:90px">
+        </label>
+
+        <label>Period
+          <select id="period" required>
+            <option value="" selected disabled>— Select —</option>
+            <option value="OPEN">Opening</option>
+            <option value="CLOSE">Closing</option>
+          </select>
+          <div id="periodWarn" class="muted" style="display:none;color:#b91c1c;margin-top:4px;">
+            Select a period to enable Load/Save.
+          </div>
+        </label>
+        <div class="spacer"></div>
+        <button id="btnLoad" class="tiny" type="button">Load Today</button>
+        <button id="btnPing" class="tiny" type="button" title="Checks connection to server">Check connection</button>
+      </div>
+
+      <!-- single status line -->
+      <div id="msg" class="muted" style="margin-top:8px"></div>
+
+      
+
+      <div class="grid" style="margin-top:10px;">
+        <div>
+          <h3>Coins</h3>
+          <table>
+            <tr><td><label>0.01 (pennies)</label></td><td><input type="number" id="c001" min="0" step="1" placeholder="0" autocomplete="off" enterkeyhint="next"></td></tr>
+            <tr><td><label>0.05 (nickels)</label></td><td><input type="number" id="c005" min="0" step="1" placeholder="0" autocomplete="off" enterkeyhint="next"></td></tr>
+            <tr><td><label>0.10 (dimes)</label></td><td><input type="number" id="c010" min="0" step="1" placeholder="0" autocomplete="off" enterkeyhint="next"></td></tr>
+            <tr><td><label>0.25 (quarters)</label></td><td><input type="number" id="c025" min="0" step="1" placeholder="0" autocomplete="off" enterkeyhint="next"></td></tr>
+            <tr><td><label>0.50 (half-dollar)</label></td><td><input type="number" id="c050" min="0" step="1" placeholder="0" autocomplete="off" enterkeyhint="next"></td></tr>
+            <tr class="tot"><td>Total Coin</td><td class="mono" id="coinTotal">$0.00</td></tr>
+          </table>
+        </div>
+        <div>
+          <h3>Bills</h3>
+          <table>
+            <tr><td><label>$1</label></td><td><input type="number" id="b1"   min="0" step="1" placeholder="0" autocomplete="off" enterkeyhint="next"></td></tr>
+            <tr><td><label>$2</label></td><td><input type="number" id="b2"   min="0" step="1" placeholder="0" autocomplete="off" enterkeyhint="next"></td></tr>
+            <tr><td><label>$5</label></td><td><input type="number" id="b5"   min="0" step="1" placeholder="0" autocomplete="off" enterkeyhint="next"></td></tr>
+            <tr><td><label>$10</label></td><td><input type="number" id="b10" min="0" step="1" placeholder="0" autocomplete="off" enterkeyhint="next"></td></tr>
+            <tr><td><label>$20</label></td><td><input type="number" id="b20" min="0" step="1" placeholder="0" autocomplete="off" enterkeyhint="next"></td></tr>
+            <tr><td><label>$50</label></td><td><input type="number" id="b50" min="0" step="1" placeholder="0" autocomplete="off" enterkeyhint="next"></td></tr>
+            <tr><td><label>$100</label></td><td><input type="number" id="b100" min="0" step="1" placeholder="0" autocomplete="off" enterkeyhint="next"></td></tr>
+            <tr class="tot"><td>Total Bills</td><td class="mono" id="billTotal">$0.00</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:10px;">
+        <div class="tot">Grand Total: <span class="mono" id="grandTotal">$0.00</span></div>
+      </div>
+
+      <div class="row" style="margin-top:10px;">
+        <input id="second" placeholder="Second person's name (optional)" style="flex:1">
+        <input id="user" placeholder="Your name" style="flex:1" readonly>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <textarea id="notes" placeholder="Notes (optional)" rows="3" style="width:100%"></textarea>
+      </div>
+
+     
+      <div class="row" style="margin-top:10px;">
+        <button id="btnSave" type="button">Save</button>
+      </div>
+
+      <!-- summary panel (moved below Save) -->
+      <div id="summary" class="muted" style="display:none;margin-top:10px"></div>
+
+    </section>
+  </main>
+
+  <script>
+    // --- banner based on server check ---
+    const POLL_MS = 2 * 60 * 1000;
+    let closePollTimer = null;
+
+    function startClosePoll() {
+      stopClosePoll();
+      closePollTimer = setInterval(refreshClosingReminder, POLL_MS);
+    }
+    function stopClosePoll() {
+      if (closePollTimer) { clearInterval(closePollTimer); closePollTimer = null; }
+    }
+
+    function refreshClosingReminder(){
+      const drawerEl = document.getElementById('drawer');
+      const drawer = drawerEl ? String(drawerEl.value || '').trim() : '';
+      if (!drawer) { stopClosePoll(); return; }
+
+      google.script.run
+        .withSuccessHandler(function(res){
+          // Show the yellow banner only after the reminder time AND if closing is missing
+          const box = document.getElementById('closeReminder');
+          if (box) {
+            const shouldShow = !!(res && res.afterReminder && res.missingClose);
+            box.style.display = shouldShow ? 'block' : 'none';
+          }
+
+          // Stop polling if there is no pending close; otherwise keep gentle polling
+          if (res && res.missingClose === false) {
+            stopClosePoll();
+          } else if (!closePollTimer) {
+            startClosePoll();
+          }
+        })
+        .withFailureHandler(function(){ /* no-op */ })
+        .apiCD_CheckClosingReminder(drawer);
+    }
+
+    // Pause polling when the tab is hidden; resume when visible.
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) {
+        stopClosePoll();
+      } else {
+        refreshClosingReminder();   // check now
+        startClosePoll();           // and then resume gentle polling
+      }
+    });
+
+    // Kick off once on load
+    window.addEventListener('load', function () {
+      refreshClosingReminder();
+      startClosePoll();
+    });
+
+    (function () {
+      // --- auth/profile bootstrap (same pattern as POS/Intake) ---
+      const token = localStorage.getItem('mrad_token');
+      if (!token) { window.location.replace('<?= execUrl ?>?page=login'); return; }
+
+      function $(id){ return document.getElementById(id); }
+      window.$ = $;
+
+      function lockUserField(name){
+        const u = $('user'); if (!u) return;
+        if (name && !u.value) u.value = name;
+        u.readOnly = true;
+        u.setAttribute('aria-readonly','true');
+        u.style.background = '#f3f4f6';
+      }
+
+      // Use cached profile instantly (fast fill)
+      try { window.MADRAD_PROFILE = JSON.parse(localStorage.getItem('mrad_profile') || 'null'); } catch(_) {}
+      if (window.MADRAD_PROFILE) lockUserField(window.MADRAD_PROFILE.user);
+
+      // Verify token in background and refresh cached profile; re-lock name
+      try {
+        google.script.run
+          .withSuccessHandler(function(profile){
+            window.MADRAD_PROFILE = profile;
+            localStorage.setItem('mrad_profile', JSON.stringify(profile));
+            lockUserField(profile.user);
+            updateLoadPermission(); 
+          })
+          .withFailureHandler(function(){
+            localStorage.removeItem('mrad_token');
+            localStorage.removeItem('mrad_profile');
+            window.location.replace('<?= execUrl ?>?page=login');
+          })
+          .apiVerify(token);
+      } catch(_) {}
+
+      // --- error surface ---
+      window.addEventListener('error', function(e){
+        const m = document.getElementById('msg');
+        if (m) { m.textContent = 'JS error: ' + (e.error?.message || e.message); m.style.color = '#b91c1c'; }
+      });
+
+      const fmt = n => '$' + (Number(n)||0).toFixed(2);
+
+      function showMsg(text, color){
+        const m = $('msg'); if (!m) return;
+        m.textContent = text || '';
+        m.style.color = color || '#2563eb';
+      }
+
+      // === CALC (must exist before other helpers use it) ===
+      function recalc(){
+        const $v = id => +($(id).value||0);
+        const c001=$v('c001'), c005=$v('c005'), c010=$v('c010'), c025=$v('c025'), c050=$v('c050');
+        const coin = c001*0.01 + c005*0.05 + c010*0.10 + c025*0.25 + c050*0.50;
+        $('coinTotal').textContent = fmt(coin);
+
+        const b1=$v('b1'), b2=$v('b2'), b5=$v('b5'), b10=$v('b10'), b20=$v('b20'), b50=$v('b50'), b100=$v('b100');
+        const bill = b1*1 + b2*2 + b5*5 + b10*10 + b20*20 + b50*50 + b100*100;
+        $('billTotal').textContent = fmt(bill);
+
+        $('grandTotal').textContent = fmt(coin + bill);
+      }
+
+      // === PLAN B helpers (MOVED INSIDE so they can see recalc) ===
+      function wireQtyInputs(){
+        const ids = ['c001','c005','c010','c025','c050','b1','b2','b5','b10','b20','b50','b100'];
+        ids.forEach(id => {
+          const el = document.getElementById(id);
+          if (!el) return;
+
+          // Focus: make it blank so the first digit just types (no backspace)
+          el.addEventListener('focus', () => {
+            if (el.value === '0' || el.value === '') el.value = '';
+          });
+
+          // Input: update totals live
+          el.addEventListener('input', recalc);
+
+          // Blur: normalize blank/invalid to 0
+          el.addEventListener('blur', () => {
+            const v = String(el.value).trim();
+            const n = v === '' ? 0 : parseInt(v, 10);
+            el.value = (isNaN(n) || n < 0) ? '0' : String(n);
+            recalc(); // also recalc on blur to catch empty→0 normalization
+          });
+        });
+      }
+
+      function resetBlank(keepUser=true){
+        ['c001','c005','c010','c025','c050','b1','b2','b5','b10','b20','b50','b100'].forEach(id => {
+          const el=document.getElementById(id); if(el) el.value='';
+        });
+        if (!keepUser) { if ($('user')) $('user').value = ''; }
+        if ($('second')) $('second').value = '';
+        if ($('notes'))  $('notes').value  = '';
+        recalc();
+      }
+
+      function fillFrom(rec){
+        if (!rec) return;
+        $('c001').value=rec.c001||0; $('c005').value=rec.c005||0; $('c010').value=rec.c010||0; $('c025').value=rec.c025||0; $('c050').value=rec.c050||0;
+        $('b1').value=rec.b1||0; $('b2').value=rec.b2||0; $('b5').value=rec.b5||0; $('b10').value=rec.b10||0; $('b20').value=rec.b20||0; $('b50').value=rec.b50||0; $('b100').value=rec.b100||0;
+        if ($('second')) $('second').value=rec.second||'';
+        if ($('notes'))  $('notes').value =rec.notes||'';
+        recalc();
+      }
+
+      function loadToday(){
+        const sel = $('period');
+        const period = sel && sel.value ? sel.value : '';
+        if (!period){
+          showMsg('Choose a Period (Opening/Closing) first.', '#b91c1c');
+          if (sel) sel.focus();
+          return;
+        }
+
+        const drawer = String(($('drawer')?.value||'1')).trim();
+        console.group('apiCD_LoadToday');
+        console.log('request →', { drawer, period });
+        showMsg('Loading…');
+        renderSummary(null); // clear summary while loading
+
+        google.script.run
+          .withSuccessHandler(function(res){
+            console.log('response ←', res);
+            if (res && Array.isArray(res.logs)) res.logs.forEach(l => console.log('server:', l));
+            if (!res || typeof res !== 'object') { console.groupEnd(); showMsg('No response from server. Try again.', '#b91c1c'); return; }
+            if (res.error) { console.groupEnd(); showMsg(res.error, '#b91c1c'); return; }
+
+            // Server returns both open and close; pick based on selection
+            const rec = (period === 'CLOSE') ? res.close : res.open;
+
+            if (rec) {
+              fillFrom(rec);
+              const label = (period==='OPEN' ? 'Opening count (today)' : 'Closing count (today)');
+              renderSummary(rec, label);
+              const t = new Date(rec.timestamp);
+              showMsg(`${label} loaded • ${t.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}`, '#2563eb');
+            } else {
+              resetBlank(true);
+              renderSummary(null);
+              if (window._drawerJustSaved) {
+                window._drawerJustSaved = false; // suppress the “no record yet” message right after a save
+              } else {
+                showMsg(`No ${period==='OPEN'?'opening':'closing'} count saved yet. Enter values and Save.`, '#2563eb');
+              }
+            }
+            console.groupEnd();
+          })
+          .withFailureHandler(function(err){
+            console.error('failure ←', err);
+            console.groupEnd();
+            showMsg(err && err.message ? err.message : 'Load failed.', '#b91c1c');
+          })
+          .apiCD_LoadToday(drawer);
+      }
+
+      function saveCount(){
+        const periodVal = $('period')?.value || '';
+        if (!periodVal){
+          showMsg('Please select a Period (Opening or Closing) before saving.', '#b91c1c');
+          $('period')?.focus();
+          return;
+        }
+
+        if (!confirm('Once saved, this count is locked and cannot be edited by clerks.\n\nDo you want to Save?')) return;
+
+        const $v = id => +($(id).value||0);
+        const c001=$v('c001'), c005=$v('c005'), c010=$v('c010'), c025=$v('c025'), c050=$v('c050');
+        const b1=$v('b1'), b2=$v('b2'), b5=$v('b5'), b10=$v('b10'), b20=$v('b20'), b50=$v('b50'), b100=$v('b100');
+
+        const coinTotal = c001*0.01 + c005*0.05 + c010*0.10 + c025*0.25 + c050*0.50;
+        const billTotal = b1*1 + b2*2 + b5*5 + b10*10 + b20*20 + b50*50 + b100*100;
+        const grandTotal = coinTotal + billTotal;
+
+        const payload = {
+          drawer: String(($('drawer')?.value||'1')).trim(),
+          period: periodVal,
+          user:   ($('user')?.value||'').trim(),
+          loginId: (window.MADRAD_PROFILE && (MADRAD_PROFILE.loginId || MADRAD_PROFILE.login || MADRAD_PROFILE.username || '')) || '',
+          c001, c005, c010, c025, c050,
+          b1, b2, b5, b10, b20, b50, b100,
+          coinTotal, billTotal, grandTotal,
+          second: ($('second')?.value||'').trim(),
+          notes:  ($('notes')?.value ||'').trim()
+        };
+
+        console.group('apiCD_Save');
+        console.log('payload →', payload);
+        showMsg('Saving…');
+
+        google.script.run
+          .withSuccessHandler(function(res){
+            console.log('response ←', res);
+            if (res && Array.isArray(res.logs)) res.logs.forEach(l => console.log('server:', l));
+            if (res && !res.error) {
+              showMsg(`Saved (${res.countId}) • Grand Total ${fmt(res.grandTotal)}`);
+              window._drawerJustSaved = true;
+              // Keep the selected period; then re-load from the sheet so form + summary reflect on-file values.
+              loadToday();
+            } else {
+              showMsg(res && res.error ? res.error : 'Save failed.', '#b91c1c');
+            }
+            console.groupEnd();
+          })
+          .withFailureHandler(function(err){
+            console.error('failure ←', err);
+            console.groupEnd();
+            showMsg(err && err.message ? err.message : 'Save failed.', '#b91c1c');
+          })
+          .apiCD_Save(payload);
+      }
+      
+      function updateSaveEnabled(){
+        const hasPeriod = !!($('period') && $('period').value);
+        const btn = $('btnSave');
+        if (btn){
+          btn.disabled = !hasPeriod;
+          btn.title = hasPeriod ? '' : 'Select a period first';
+        }
+        const warn = $('periodWarn'); if (warn) warn.style.display = hasPeriod ? 'none' : 'block';
+      }
+      
+      function ping(){
+        console.group('apiCD_Ping');
+        console.log('request → (none)');
+        google.script.run
+          .withSuccessHandler(function(msg){
+            console.log('response ←', msg);
+            const txt = (typeof msg === 'string') ? msg
+                      : (msg && msg.ok ? `ok • ${msg.now} (${msg.tz})`
+                      : JSON.stringify(msg));
+            console.groupEnd();
+            showMsg(`Connection OK: ${txt}`, '#059669');
+          })
+          .withFailureHandler(function(err){
+            console.error('failure ←', err);
+            console.groupEnd();
+            showMsg('Connection failed. Redeploy the web app.', '#b91c1c');
+          })
+          .apiCD_Ping();
+      }
+      
+      function renderSummary(rec, label){
+        const box = $('summary'); if(!box) return;
+        if(!rec){ box.style.display = 'none'; box.innerHTML=''; return; }
+        box.style.display = 'block';
+
+        const when = rec.timestamp ? new Date(rec.timestamp) : new Date();
+        const time = when.toLocaleString([], {year:'numeric',month:'2-digit',day:'2-digit',hour:'numeric',minute:'2-digit'});
+
+        box.innerHTML = `
+          <div style="padding:8px;border:1px dashed #ccc;border-radius:10px;background:#fff">
+            <div><strong>${label}</strong> • ${time}</div>
+            <div>Drawer ${rec.drawer ?? ($('drawer')?.value||'')} • User: ${rec.user ?? ($('user')?.value||'')}</div>
+            <div>Coins: ${fmt(rec.coinTotal)} • Bills: ${fmt(rec.billTotal)} • <strong>Total: ${fmt(rec.grandTotal)}</strong></div>
+            ${rec.second ? `<div>Second: ${rec.second}</div>` : ''}
+            ${rec.notes ? `<div>Notes: ${rec.notes}</div>` : ''}
+            ${rec.countId ? `<div class="mono">ID: ${rec.countId}</div>` : ''}
+          </div>`;
+      }
+
+      // CLEAN version (no nested helpers)
+      function updateLoadPermission(){
+        const user = ($('user')?.value || '').trim();
+        const loginId = (window.MADRAD_PROFILE && (MADRAD_PROFILE.loginId || MADRAD_PROFILE.login || MADRAD_PROFILE.username || '')) || '';
+        const btn = $('btnLoad');
+        if (!btn) return;
+
+        const hasPeriod = !!($('period') && $('period').value);
+        btn.disabled = true;
+        btn.title = hasPeriod ? 'Checking…' : 'Select a period first';
+
+        google.script.run
+          .withSuccessHandler(function(res){
+            const allowed = !!(res && res.canLoad);
+            btn.disabled = !hasPeriod || !allowed;
+            btn.title = !hasPeriod ? 'Select a period first' : (allowed ? '' : 'Managers only');
+          })
+          .withFailureHandler(function(){
+            btn.disabled = true;
+            btn.title = !hasPeriod ? 'Select a period first' : 'Managers only';
+          })
+          .apiCD_CanLoad(user, loginId);
+      }
+      
+      // Wire up after DOM is ready; also mark readiness
+      document.addEventListener('DOMContentLoaded', function(){
+        showMsg('JS ready.', '#6b7280');
+
+        // Ensure user field is filled/locked even if script loaded before inputs
+        if (window.MADRAD_PROFILE) lockUserField(window.MADRAD_PROFILE.user);
+
+        // PLAN B: qty wiring (blank on focus, 0 on blur, recalc on input)
+        wireQtyInputs();
+
+        // Buttons
+        $('btnLoad').addEventListener('click', loadToday);
+        $('btnSave').addEventListener('click', saveCount);
+        $('btnPing').addEventListener('click', ping);
+
+        // Period change: update gating; only load if a period is selected
+        $('period').addEventListener('change', function(){
+          updateSaveEnabled();
+          updateLoadPermission();
+          if (this.value) {
+            loadToday();
+          } else {
+            showMsg('Choose a Period (Opening/Closing) first.', '#b91c1c');
+          }
+        });
+
+        // Drawer change: only load if period is selected
+        $('drawer').addEventListener('change', function(){
+          if (($('period')?.value || '') !== '') {
+            loadToday();
+          } else {
+            showMsg('Choose a Period (Opening/Closing) first.', '#b91c1c');
+          }
+        });
+
+        // Start with BLANKS (not zeros), then set initial button states
+        resetBlank(true);
+        updateSaveEnabled();
+        updateLoadPermission();
+
+        // Closing reminder ticker
+        refreshClosingReminder();               // initial check
+        setInterval(refreshClosingReminder, 120000); // check every 2 minutes
+      });
+
+    })();
+  </script>
+
+</body>
+</html>

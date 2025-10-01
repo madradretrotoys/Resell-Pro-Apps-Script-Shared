@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <meta charset="utf-8">
+    <title>Estimates</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/modern-normalize/2.0.0/modern-normalize.min.css">
+    <style>
+      body { font: 14px/1.3 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color:#111; background:#fff; }
+      .nav { display:flex; gap:8px; padding:10px; border-bottom:1px solid #eee; }
+      .nav a, .nav button { border:1px solid #e5e5ef; padding:6px 10px; border-radius:8px; text-decoration:none; color:#111; background:#fff; }
+      .container { max-width:1100px; margin:20px auto; padding:0 12px; }
+      .card { border:1px solid #e5e5ef; border-radius:12px; background:#fff; padding:12px; }
+      .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+      table { width:100%; border-collapse:collapse; margin-top:10px; }
+      th, td { text-align:left; padding:8px; border-bottom:1px solid #f1f1f6; }
+      th { font-weight:600; color:#444; }
+      .btn { border:1px solid #e5e5ef; padding:6px 10px; border-radius:8px; background:#fff; cursor:pointer; }
+      .btn.small { font-size:12px; padding:4px 8px; }
+      /* === Busy overlay & spinner === */
+      .busy-overlay{position:fixed;inset:0;background:rgba(255,255,255,.6);
+        backdrop-filter:saturate(180%) blur(2px);display:none;align-items:center;
+        justify-content:center;z-index:9999}
+      .busy-overlay.show{display:flex}
+      .spinner{width:28px;height:28px;border-radius:50%;border:3px solid #ddd;
+        border-top-color:#3b82f6;animation:spin .8s linear infinite}
+      @keyframes spin{to{transform:rotate(360deg)}}
+    </style>
+  </head>
+  <body>
+    <script>
+      window.MADRAD_PAGE = 'estimate';
+      window.MADRAD_EXEC_URL = '<?= execUrl ?>';
+      window.RES_DEBUG = true;
+    </script>
+    <?!= include('nav'); ?>
+
+    <div class="container">
+      <h2>Estimates</h2>
+      <div class="card">
+        <div class="row">
+          <input id="q" placeholder="Search name, email, phone, or Request ID." style="flex:1; padding:8px; border:1px solid #e5e5ef; border-radius:8px">
+          <select id="statusSel">
+            <option>Open|In Progress|Offered|Declined-WaitingPickup</option>
+            <option>Open</option>
+            <option>In Progress</option>
+            <option>Offered</option>
+            <option>Declined-WaitingPickup</option>
+            <option>Accepted|Paid</option>
+            <option>Closed</option>
+            <option>All</option>
+          </select>
+          <button id="btnSearch" class="btn">Search</button>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="width:160px">ID</th>
+              <th>Customer</th>
+              <th>Phone</th>
+              <th>Email</th>
+              <th>Asking sell price</th>
+              <th>Status</th>
+              <th>Updated</th>
+              <th>Ticket</th>
+            </tr>
+          </thead>
+          <tbody id="rows"><tr><td colspan="7">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <script>
+      (() => {
+        // ---------- tiny helpers ----------
+        const $ = id => document.getElementById(id);
+        const base = (window.MADRAD_EXEC_URL || "<?= execUrl ?>").replace(/\/+$/,'');
+        const money = v => (v===''||v==null||v==='—') ? '—' : ('$' + Number(v).toFixed(2));
+        const debug = (...a) => { try { console.debug(...a); } catch(_) {} };
+
+        // Open the Buy Ticket screen for a given ticketId
+        function goToTicket(ticketId) {
+          if (!ticketId) { alert('No ticket id to open'); return; }
+          try { localStorage.setItem('mrad_current_ticket', ticketId); } catch(_) {}
+          (window.top || window).location.href =
+            base + '?page=bticket&ticket=' + encodeURIComponent(ticketId);
+        }
+
+        // --- Busy helpers (shared with bticket) ---
+        function setBtnBusy(btn, busy, labelWhileBusy){
+          if(!btn) return;
+          if(busy){
+            btn.dataset.prevText = btn.textContent;
+            btn.disabled = true;
+            if(labelWhileBusy) btn.textContent = labelWhileBusy;
+          }else{
+            if(btn.dataset.prevText != null){
+              btn.textContent = btn.dataset.prevText;
+              delete btn.dataset.prevText;
+            }
+            btn.disabled = false;
+          }
+        }
+        function showOverlay(show){
+          const ov = document.getElementById('busy_overlay');
+          if(ov) ov.classList.toggle('show', !!show);
+          const sr = document.getElementById('sr_status');
+          if(sr) sr.textContent = show ? 'Working' : '';
+        }
+
+        // Render the rows returned by apiEst_List
+        function render(rows) {
+          const body = $('rows');
+          if (!rows || rows.length === 0) {
+            body.innerHTML = `<tr><td colspan="7">No results</td></tr>`;
+            return;
+          }
+          body.innerHTML = rows.map(r => {
+            const btn = `<button class="btn small est-ticket"
+                              data-est="${r.reqId}"
+                              data-name="${(r.first || '') + ' ' + (r.last || '')}"
+                              data-phone="${r.phone || ''}"
+                              data-email="${r.email || ''}">
+                            Create/Resume
+                          </button>`;
+            return `
+              <tr>
+                <td>${r.reqId}</td>
+                <td>${r.first || ''} ${r.last || ''}</td>
+                <td>${r.phone || ''}</td>
+                <td>${r.email || ''}</td>
+                <td>${money(r.wouldLike)}</td>
+                <td>${r.status || ''}</td>
+                <td>${r.updatedAt || ''}</td>
+                <td style="text-align:right">${btn}</td>
+              </tr>`;
+          }).join('');
+
+          // wire up buttons
+          document.querySelectorAll('.est-ticket').forEach(btn => {
+            btn.addEventListener('click', () => {
+              const prev = btn.textContent;
+              const estId = btn.dataset.est;
+              const seller = {
+                name: (btn.dataset.name || '').trim(),
+                phone: btn.dataset.phone || '',
+                email: btn.dataset.email || ''
+              };
+              try { localStorage.setItem('mrad_current_estimate', estId); } catch(_) {}
+              btn.disabled = true;
+              btn.textContent = 'Working…';
+              
+              // NEW: show overlay while server is working
+              showOverlay(true);
+
+              google.script.run
+                .withSuccessHandler(res => {
+                  // NEW: hide overlay now
+                  showOverlay(false);
+                  debug('[CreateOrGetTicket] response:', res);
+                  try {
+                    // Accept either { ok:true, ticketId } or { ticket: { ticketId } } or { id }
+                    const ticketId =
+                      (res && (res.ticketId || (res.ticket && res.ticket.ticketId) || res.id)) || '';
+                    if (!ticketId) throw new Error('No ticketId returned from server');
+                    goToTicket(ticketId);
+                  } catch (e) {
+                    console.error('CreateOrGetTicket bad payload:', res, e);
+                    alert('Could not create/open Buy Ticket.\n\n' + (e && e.message ? e.message : e));
+                    btn.disabled = false; btn.textContent = prev;
+                  }
+                })
+                .withFailureHandler(err => {
+                  const msg = (err && (err.message || err.toString())) || 'Unknown error';
+                  console.error('CreateOrGetTicket failed:', err);
+                  alert('Could not create/open Buy Ticket.\n\n' + msg);
+                  btn.disabled = false; btn.textContent = prev;
+                })
+                // server will create or return the open ticket for this estimate
+                .apiBT_createOrGetForEstimate(estId, seller);
+            });
+          });
+        }
+
+        document.getElementById('btnSearch')?.addEventListener('click', load);
+
+        // Initial load of the Estimates list
+        function load() {
+          const q  = ($('q') && $('q').value || '').trim();
+          const st = ($('statusSel') && $('statusSel').value || '').trim();
+
+          // NEW: show busy on Search button + overlay
+          setBtnBusy($('btnSearch'), true, 'Searching…'); showOverlay(true);  
+
+          google.script.run
+            .withSuccessHandler(res => {
+              // NEW: clear busy & overlay
+              setBtnBusy($('btnSearch'), false); showOverlay(false);
+              
+              debug('[Estimates] apiEst_List response', res);
+              if (res && res.ok === false) {
+                $('rows').innerHTML = `<tr><td colspan="7">Server error: ${res.error || 'unknown'}</td></tr>`;
+                return;
+              }
+              render((res && res.rows) || res || []);
+            })
+            .withFailureHandler(err => {
+              console.error('[Estimates] apiEst_List error', err);
+              $('rows').innerHTML =
+                `<tr><td colspan="7">Error: ${err && err.message ? err.message : String(err)}</td></tr>`;
+            })
+            .apiEst_List({ q, status: st });
+        }
+
+        window.load = load;
+        document.addEventListener('DOMContentLoaded', load);
+      })();
+    </script>
+    <div id="busy_overlay" class="busy-overlay" aria-hidden="true">
+      <div class="spinner" role="progressbar" aria-label="Working"></div>
+    </div>
+    <div id="sr_status" aria-live="polite" style="position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden"></div>
+  </body>
+</html>

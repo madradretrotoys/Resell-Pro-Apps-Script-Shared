@@ -1,0 +1,95 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <style>
+      :root{--card:#f9fafb;--muted:#6b7280;--ok:#16a34a;--warn:#b91c1c}
+      body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f6f7fb}
+      .wrap{max-width:700px;margin:0 auto;background:#fff;border:1px solid #eee;border-radius:16px;box-shadow:0 2px 8px rgba(0,0,0,.06);overflow:hidden}
+      .head{padding:16px 20px;border-bottom:1px solid #f1f1f1}
+      h1{font-size:18px;margin:0} .sub{font-size:13px;color:var(--muted)}
+      .cards{padding:16px 20px;display:flex;gap:16px}
+      .card{flex:1;background:var(--card);border:1px solid #eee;border-radius:10px;padding:10px 12px}
+      .k{font-size:13px;color:var(--muted);margin-bottom:4px} .v{font-size:22px;font-weight:700}
+      table{width:100%;border-collapse:collapse}
+      th,td{padding:8px;border:1px solid #eee;text-align:left}
+      thead tr{background:#fafafa}
+      .muted{color:var(--muted)}
+      .ok{color:var(--ok)} .warn{color:var(--warn)}
+      .sec{padding:0 20px 14px}
+      .sec h2{margin:12px 0 6px;font-size:16px}
+      .foot{padding:14px 20px;border-top:1px solid #f1f1f1;font-size:12px;color:var(--muted)}
+      .right{text-align:right}
+    </style>
+  </head>
+  <body>
+    <? function money(n){ return "$" + (Number(n||0)).toFixed(2); } ?>
+    <div class="wrap">
+      <div class="head">
+        <h1>Mad Rad — Daily Cash Summary</h1>
+        <div class="sub"><?= dayStr ?></div>
+      </div>
+
+      <div class="cards">
+        <div class="card"><div class="k">Cash sales total</div><div class="v"><?= money(cashSalesTotal) ?></div></div>
+        <div class="card"><div class="k">Cash removed from Safe</div><div class="v"><?= money(safeTotal) ?></div></div>
+        <div class="card"><div class="k">Cash refunds</div><div class="v"><?= money(cashRefundsTotal || 0) ?></div></div>
+        <? var vClass = (Math.abs(totalVariance) <= 0.01) ? 'ok' : 'warn'; ?>
+        <div class="card"><div class="k">Total variance (all drawers)</div><div class="v <?= vClass ?>"><?= money(totalVariance) ?></div></div>
+      </div>
+
+      <div class="sec">
+        <h2>Drawers</h2>
+        <table>
+          <thead>
+            <tr><th>Drawer</th><th>Opening</th><th>Closing</th><th>Payouts</th><th>Implied Cash</th></tr>
+          </thead>
+          <tbody>
+            <? var drawers = ['1','2']; var any=false;
+               for (var i=0;i<drawers.length;i++){ var d=drawers[i];
+                 var open = Number((openingByDrawer||{})[d]||0),
+                     close= Number((closingByDrawer||{})[d]||0),
+                     pay  = Number((payoutByDrawer||{})[d]||0),
+                     imp  = Number((impliedByDrawer||{})[d]||0);
+                 if (open||close||pay||imp){ any=true; ?>
+                   <tr>
+                     <td>Drawer <?= d ?></td>
+                     <td><?= money(open) ?></td>
+                     <td><?= money(close) ?></td>
+                     <td><?= money(pay) ?></td>
+                     <td><?= money(imp) ?></td>
+                   </tr>
+            <? } } if(!any){ ?>
+                   <tr><td colspan="5" class="muted">No drawer counts for this day.</td></tr>
+            <? } ?>
+        </tbody></table>
+        <div class="sub">Implied Cash = Closing − Opening + Payouts.</div>
+      </div>
+
+      <div class="sec">
+        <h2>All Sales</h2>
+        <table>
+          <thead><tr><th>Time</th><th>Sale ID</th><th>Clerk</th><th>Payment</th><th class="right">Total</th></tr></thead>
+          <tbody>
+            <? if ((sales||[]).length === 0) { ?>
+              <tr><td colspan="5" class="muted">No sales recorded.</td></tr>
+            <? } else {
+                 for (var i=0;i<sales.length;i++){ var s=sales[i]; ?>
+              <tr>
+                <td><?= Utilities.formatDate(s.ts, tz, 'M/d h:mm a') ?></td>
+                <td><?= s.saleId || '' ?></td>
+                <td><?= s.clerk  || '' ?></td>
+                <td><?= s.payment|| '' ?></td>
+                <td class="right"><?= money(Number(s.total||0)) ?></td>
+              </tr>
+            <? } } ?>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="foot">
+        Green = balanced; Red = needs attention. Variance = (Closing − Opening + Drawer Payouts + Cash Refunds − Cash Sales).
+      </div>
+    </div>
+  </body>
+</html>

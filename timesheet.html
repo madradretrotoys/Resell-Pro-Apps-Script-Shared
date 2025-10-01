@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8" />
+  <style>
+    /* ===== Theme (easy to tweak) ===== */
+    :root{
+      --brand: #2563eb;         /* primary (Save, Manager Save) */
+      --brand-600:#1d4ed8;
+      --brand-700:#1e40af;
+
+      --ok: #10b981;            /* Clock In */
+      --ok-600:#059669;
+
+      --warn: #f59e0b;          /* Lunch Out */
+      --warn-600:#d97706;
+
+      --info: #3b82f6;          /* Lunch In */
+      --info-600:#2563eb;
+
+      --danger:#ef4444;         /* Clock Out */
+      --danger-600:#dc2626;
+
+      --fg:#111827;
+      --muted:#6b7280;
+      --border:#e5e7eb;
+      --bg:#ffffff;
+      --bg-soft:#f9fafb;
+      --shadow: 0 8px 20px rgba(0,0,0,0.06);
+      --radius: 10px;
+    }
+
+    /* ===== Base ===== */
+    html,body{background:var(--bg); color:var(--fg);}
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    h2 { margin-top: 0; }
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .card{border:1px solid var(--border);border-radius:var(--radius);padding:12px;background:#fff;margin-top:12px;box-shadow:var(--shadow)}
+    .muted{color:var(--muted)}
+    .pill{border:1px solid var(--border);border-radius:999px;padding:4px 10px;font-size:12px;background:var(--bg-soft)}
+    .status { padding: 6px 12px; border-radius: 6px; display: inline-block; margin-bottom: 10px; }
+    .status.open { background: #fff7ed; color:#9a3412; border:1px solid #fed7aa;}
+    .status.complete { background: #ecfdf5; color:#065f46; border:1px solid #bbf7d0;}
+    .status.needsreview { background: #fef2f2; color:#991b1b; border:1px solid #fecaca;}
+    table { border-collapse: collapse; width: 100%; margin-top: 15px; background:#fff; border-radius:var(--radius); overflow:hidden; box-shadow:var(--shadow) }
+    th, td { border: 1px solid var(--border); padding: 10px; text-align: center; }
+    th{background:var(--bg-soft); font-weight:600}
+
+    /* ===== Buttons ===== */
+    .actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+    .btn{
+      --btn-bg:#fff; --btn-fg:var(--fg); --btn-bd:var(--border); --btn-bg-h:#fff; --btn-bd-h:var(--border);
+      display:inline-flex; align-items:center; justify-content:center; gap:8px;
+      padding:10px 16px; border-radius:10px; font-weight:600; border:1px solid var(--btn-bd);
+      background:var(--btn-bg); color:var(--btn-fg); cursor:pointer; transition:all .15s ease;
+      box-shadow:0 2px 6px rgba(0,0,0,0.04);
+    }
+    .btn:hover{ background:var(--btn-bg-h); border-color:var(--btn-bd-h); transform:translateY(-1px) }
+    .btn:active{ transform:translateY(0) }
+    .btn:disabled{ opacity:.5; cursor:not-allowed; transform:none }
+
+    .btn-primary{ --btn-bg:var(--brand); --btn-fg:#fff; --btn-bd:var(--brand);
+                  --btn-bg-h:linear-gradient(180deg,var(--brand) 0%, var(--brand-600) 100%); --btn-bd-h:var(--brand-700) }
+    .btn-success{ --btn-bg:var(--ok); --btn-fg:#fff; --btn-bd:var(--ok);
+                  --btn-bg-h:linear-gradient(180deg,var(--ok) 0%, var(--ok-600) 100%); --btn-bd-h:var(--ok-600) }
+    .btn-warning{ --btn-bg:var(--warn); --btn-fg:#111; --btn-bd:var(--warn);
+                  --btn-bg-h:linear-gradient(180deg,var(--warn) 0%, var(--warn-600) 100%); --btn-bd-h:var(--warn-600) }
+    .btn-info{    --btn-bg:var(--info); --btn-fg:#fff; --btn-bd:var(--info);
+                  --btn-bg-h:linear-gradient(180deg,var(--info) 0%, var(--info-600) 100%); --btn-bd-h:var(--info-600) }
+    .btn-danger{  --btn-bg:var(--danger); --btn-fg:#fff; --btn-bd:var(--danger);
+                  --btn-bg-h:linear-gradient(180deg,var(--danger) 0%, var(--danger-600) 100%); --btn-bd-h:var(--danger-600) }
+    .btn-ghost{   --btn-bg:#fff; --btn-fg:var(--fg); --btn-bd:var(--border);
+                  --btn-bg-h:#fff; --btn-bd-h:#cbd5e1 }
+
+    input[type="text"], input[type="date"]{
+      border:1px solid var(--border);border-radius:8px;padding:10px 12px;outline:none
+    }
+    input[type="text"]:focus, input[type="date"]:focus{ border-color:var(--brand); box-shadow:0 0 0 3px rgba(37,99,235,.15) }
+    .log { font-size: 12px; color: var(--muted); margin-top: 20px; white-space: pre-wrap; background: var(--bg-soft); padding: 10px; border: 1px solid var(--border); border-radius:var(--radius) }
+  </style>
+
+  <script>
+    // Require a session token (same as POS)
+    const token = localStorage.getItem('mrad_token');
+    if (!token) { window.location.replace('<?= execUrl ?>?page=login'); }
+
+    let _logs = [];
+    let profile = null;
+    let todayRow = null;
+
+    const log = (msg) => {
+      const ts = new Date().toLocaleTimeString();
+      _logs.push(`[${ts}] ${msg}`);
+      console.log(msg);
+      const el = document.getElementById('logs'); if (el) el.textContent = _logs.join('\n');
+    };
+
+    function onLoad(){
+      log('Timesheet page loading…');
+      google.script.run
+        .withSuccessHandler((p) => {
+          profile = p || null;
+          try { localStorage.setItem('mrad_profile', JSON.stringify(profile)); } catch(_){}
+          loadToday(); loadPeriod();
+        })
+        .withFailureHandler(() => {
+          localStorage.removeItem('mrad_token'); localStorage.removeItem('mrad_profile');
+          window.location.replace('<?= execUrl ?>?page=login');
+        })
+        .apiVerify(token);
+    }
+
+    function loadToday(){
+      google.script.run.withSuccessHandler(renderToday).withFailureHandler(showError).apiTime_GetToday({ token });
+    }
+    function loadPeriod(){
+      google.script.run.withSuccessHandler(renderPeriod).withFailureHandler(showError).apiTime_ListMy({ token });
+    }
+
+    function renderToday(row){
+      if (!row) { log('Loaded today: null'); document.getElementById('today').textContent='No record for today.'; return; }
+      todayRow = row;
+      log('Loaded today: ' + JSON.stringify(row));
+
+      const el = document.getElementById('today');
+      el.innerHTML = `
+        <div class="row" style="justify-content:space-between">
+          <h3>Today: ${row.date}</h3>
+          <span class="pill muted">Role: <strong id="roleBadge" style="margin-left:6px; font-weight:600">${(profile && profile.role) || 'Clerk'}</strong></span>
+        </div>
+        <div class="status ${row.status ? row.status.toLowerCase() : ''}">Status: ${row.status || 'Open'}</div>
+        <div class="card" style="margin-top:10px">
+          <div class="row">
+            <div>Clock In: <strong>${row.clockIn || ''}</strong></div>
+            <div>Lunch Out: <strong>${row.lunchOut || ''}</strong></div>
+            <div>Lunch In: <strong>${row.lunchIn || ''}</strong></div>
+            <div>Clock Out: <strong>${row.clockOut || ''}</strong></div>
+            <div>Total Hours: <strong>${row.totalHours || ''}</strong></div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button class="btn btn-success" onclick="punch('CLOCK_IN')">Clock In</button>
+          <button class="btn btn-warning" onclick="punch('LUNCH_OUT')">Lunch Out</button>
+          <button class="btn btn-info"    onclick="punch('LUNCH_IN')">Lunch In</button>
+          <button class="btn btn-danger"  onclick="punch('CLOCK_OUT')">Clock Out</button>
+          <button id="btnEditToday" class="btn btn-ghost" onclick="showEditToday()">Edit Today</button>
+        </div>
+
+        <div id="editTodayCard" class="card" style="display:none">
+          <div class="row"><strong>Edit Today (HH:MM AM/PM)</strong> <span class="muted">Employees: same-day only. Managers can edit any date/user (panel below).</span></div>
+          <div class="row">
+            <label>Clock In <input id="tiClockIn" type="text" placeholder="e.g. 9:05 AM" value="${row.clockIn || ''}"></label>
+            <label>Lunch Out <input id="tiLunchOut" type="text" placeholder="e.g. 12:00 PM" value="${row.lunchOut || ''}"></label>
+            <label>Lunch In <input id="tiLunchIn" type="text" placeholder="e.g. 12:30 PM" value="${row.lunchIn || ''}"></label>
+            <label>Clock Out <input id="tiClockOut" type="text" placeholder="e.g. 5:45 PM" value="${row.clockOut || ''}"></label>
+          </div>
+          <div class="row" style="margin-top:6px;">
+            <input id="tiNote" type="text" placeholder="Optional note for this correction…" style="flex:1;">
+          </div>
+          <div class="row">
+            <button class="btn btn-primary" onclick="saveEditToday()">Save</button>
+            <button class="btn btn-ghost"   onclick="cancelEditToday()">Cancel</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function showEditToday(){ document.getElementById('editTodayCard').style.display = 'block'; }
+    function cancelEditToday(){ document.getElementById('editTodayCard').style.display = 'none'; renderToday(todayRow); }
+
+    function saveEditToday(){
+      const payload = {
+        token, dateKey: todayRow.date, login: (profile && profile.login) || '',
+        fields: {
+          clockIn:  document.getElementById('tiClockIn').value.trim(),
+          lunchOut: document.getElementById('tiLunchOut').value.trim(),
+          lunchIn:  document.getElementById('tiLunchIn').value.trim(),
+          clockOut: document.getElementById('tiClockOut').value.trim()
+        },
+        note: document.getElementById('tiNote').value.trim()
+      };
+      const re = /^(\d{1,2}):(\d{2})\s*([AaPp][Mm])$/;
+      for (const [k,v] of Object.entries(payload.fields)) { if (v && !re.test(v)) { alert(`Invalid ${k} time. Use HH:MM AM/PM, e.g., 9:05 AM`); return; } }
+      log('Saving edit today: ' + JSON.stringify(payload.fields));
+      google.script.run.withSuccessHandler((row)=>{ todayRow=row; renderToday(row); loadPeriod(); })
+                       .withFailureHandler(showError)
+                       .apiTime_EditRow(payload);
+    }
+
+    function renderPeriod(rows){
+      rows = Array.isArray(rows) ? rows : [];
+      log('Loaded period rows (' + rows.length + ')');
+      const table = document.getElementById('periodTable');
+      table.innerHTML = `
+        <tr><th>Date</th><th>Clock In</th><th>Lunch Out</th><th>Lunch In</th><th>Clock Out</th><th>Total Hours</th><th>Status</th></tr>
+        ${rows.map(r => `
+          <tr>
+            <td>${r.date}</td>
+            <td>${r.clockIn || ''}</td>
+            <td>${r.lunchOut || ''}</td>
+            <td>${r.lunchIn || ''}</td>
+            <td>${r.clockOut || ''}</td>
+            <td>${r.totalHours || ''}</td>
+            <td>${r.status || ''}</td>
+          </tr>
+        `).join('')}
+      `;
+
+      // Manager quick-edit panel visibility
+      const isMgr = profile && (profile.role === 'Admin' || profile.role === 'Manager');
+      const mgr = document.getElementById('mgrBox');
+      if (mgr) mgr.style.display = isMgr ? 'block' : 'none';
+    }
+
+    function punch(type){
+      log('Punching ' + type);
+      google.script.run
+        .withSuccessHandler((row)=>{ todayRow = row; renderToday(row); loadPeriod(); })
+        .withFailureHandler(showError)
+        .apiTime_Punch({ type, token });
+    }
+
+    function showError(err){
+      const msg = (err && err.message) ? err.message : String(err);
+      log('ERROR: ' + msg);
+      alert('Error: ' + msg);
+    }
+
+    window.onload = onLoad;
+  </script>
+</head>
+<body>
+  <script>
+    // Highlight the correct nav tab
+    window.MADRAD_PAGE = 'timesheet';
+    window.MADRAD_EXEC_URL = '<?= execUrl ?>';
+    window.RES_DEBUG = true;
+  </script>
+  <?!= include('nav'); ?>
+
+  <h2>Resell Pro – TimeSheet</h2>
+
+  <div id="today">Loading today…</div>
+
+  <div id="mgrBox" class="card" style="display:none">
+    <div class="row"><strong>Manager Edit</strong> <span class="muted">(edit any employee/date)</span></div>
+    <div class="row">
+      <input id="mgrLogin" placeholder="Login ID (e.g., mblock)" />
+      <input id="mgrDate" type="date" />
+      <input id="mgrIn" placeholder="Clock In (e.g., 9:00 AM)" />
+      <input id="mgrLout" placeholder="Lunch Out (e.g., 12:00 PM)" />
+      <input id="mgrLin" placeholder="Lunch In (e.g., 12:30 PM)" />
+      <input id="mgrOut" placeholder="Clock Out (e.g., 5:45 PM)" />
+    </div>
+    <div class="row" style="margin-top:6px;">
+      <input id="mgrNote" style="flex:1" placeholder="Note for audit…" />
+      <button class="btn btn-primary" onclick="mgrSave()">Save</button>
+    </div>
+  </div>
+
+  <h3>This Pay Period</h3>
+  <table id="periodTable"></table>
+
+  <div id="logs" class="log"></div>
+
+  <script>
+    function mgrSave(){
+      const payload = {
+        token,
+        dateKey: (document.getElementById('mgrDate').value || '').trim(),
+        login: (document.getElementById('mgrLogin').value || '').trim(),
+        fields: {
+          clockIn:  (document.getElementById('mgrIn').value || '').trim(),
+          lunchOut: (document.getElementById('mgrLout').value || '').trim(),
+          lunchIn:  (document.getElementById('mgrLin').value || '').trim(),
+          clockOut: (document.getElementById('mgrOut').value || '').trim()
+        },
+        note: (document.getElementById('mgrNote').value || '').trim()
+      };
+      if (!payload.dateKey || !payload.login) { alert('Login ID and Date are required.'); return; }
+      const re = /^(\d{1,2}):(\d{2})\s*([AaPp][Mm])$/;
+      for (const [k,v] of Object.entries(payload.fields)) { if (v && !re.test(v)) { alert(`Invalid ${k} time. Use HH:MM AM/PM, e.g., 9:05 AM`); return; } }
+      google.script.run
+        .withSuccessHandler((row)=>{ if (row && todayRow && row.date === todayRow.date && payload.login === (profile && profile.login)) { todayRow = row; renderToday(row); } loadPeriod(); })
+        .withFailureHandler((e)=>{ alert((e && e.message) ? e.message : e); })
+        .apiTime_EditRow(payload);
+    }
+  </script>
+</body>
+</html>

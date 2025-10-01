@@ -1,0 +1,203 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Drop-Off Estimate & Waiver</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root{
+      --bg:#f8fafc;        /* light */
+      --card:#ffffff;
+      --ink:#0f172a;       /* slate-900 */
+      --muted:#475569;     /* slate-600 */
+      --line:#e2e8f0;      /* slate-200 */
+      --brand:#2563eb;     /* blue-600 */
+      --ok:#16a34a;        /* green-600 */
+      --danger:#dc2626;    /* red-600 */
+    }
+    html,body{background:var(--bg); color:var(--ink); font:14px/1.35 system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji","Segoe UI Emoji"; margin:0}
+    .nav{display:flex; gap:8px; padding:12px 16px; background:#fff; border-bottom:1px solid var(--line); position:sticky; top:0; z-index:2}
+    .nav a{padding:6px 10px; border:1px solid var(--line); border-radius:8px; color:var(--ink); text-decoration:none}
+    .wrap{max-width:980px; margin:18px auto; padding:0 16px}
+    h1{font-size:20px; margin:10px 0 16px}
+    .card{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px}
+    .row{display:grid; grid-template-columns:1fr 1fr; gap:12px}
+    label{display:block; font-weight:600; margin:10px 0 4px}
+    input,select,textarea{width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:#fff; color:var(--ink)}
+    textarea{min-height:160px; resize:vertical}
+    .muted{color:var(--muted)}
+    .muted.space{margin-top:4px; margin-bottom:10px} /* requested extra space under helper */
+    .btnRow{display:flex; gap:8px; margin-top:14px}
+    .btn{background:#fff; border:1px solid var(--line); border-radius:999px; padding:10px 16px; cursor:pointer}
+    .btn.primary{background:var(--brand); color:#fff; border-color:var(--brand)}
+    /* colored buttons */
+    .btn.primary{ background: var(--brand); border-color: var(--brand); color:#fff; }
+    .btn.success{ background: var(--ok);    border-color: var(--ok);    color:#fff; }
+    .btn.primary:hover, .btn.success:hover{ filter: brightness(0.96); }
+    .terms{background:#f9fafb; border:1px solid var(--line); border-radius:10px; padding:12px; margin:8px 0 0}
+    .terms ol{margin:0 0 0 18px}
+    .terms li{margin:6px 0}
+    .sigRow{display:grid; grid-template-columns:auto 220px; align-items:center; gap:10px}
+    .receipt h2{font-size:18px; margin:6px 0 14px}
+    .receipt pre{white-space:pre-wrap; font:inherit}
+    .itemsBox{background:#f9fafb; border:1px solid var(--line); color:var(--ink); padding:10px; border-radius:8px}
+    .sep{height:1px; background:var(--line); margin:12px 0}
+    .mini{font-size:12px}
+    .no-print{display:inline-flex}
+    /* Fix: keep the checkbox inline next to its label text */
+    input[type="checkbox"]{
+      width: auto !important;
+      min-width: 0;
+      padding: 0;
+      margin-right: 8px;   /* space between box and “I agree to the terms” */
+      vertical-align: middle;
+      display: inline-block;
+    }
+    /* Summary block (hidden until saved) */
+    #printBlock{display:none}
+    #printBlock .printHdr{font-weight:700;margin-bottom:6px}
+
+    /* FIXED print rules: hide the form, not the summary card */
+    @media print{
+      body{background:#fff;color:#111}
+      nav,header{display:none !important}
+      #estForm{display:none !important}
+      #printBlock{display:block !important;border:none;box-shadow:none}
+      #printBlock .btn{display:none !important}
+    }
+  </style>
+</head>
+<body>
+  <script>
+    window.MADRAD_PAGE = 'estimate_drop';
+    window.MADRAD_EXEC_URL = '<?= execUrl ?>';
+    window.RES_DEBUG = true; // toggle verbose console logs
+  </script>
+  <?!= include('nav'); ?>
+  <main>
+    <h1>Drop-Off Estimate & Waiver</h1>
+    
+
+    <form class="card" id="estForm">
+      <div class="row">
+        <div class="half">
+          <label>First name</label>
+          <input name="first" required>
+        </div>
+        <div class="half">
+          <label>Last name</label>
+          <input name="last" required>
+        </div>
+      </div>
+      <div class="row">
+        <div class="half">
+          <label>Phone</label>
+          <input name="phone" placeholder="(555) 555-5555">
+        </div>
+        <div class="half">
+          <label>Email</label>
+          <input type="email" name="email" placeholder="you@example.com">
+        </div>
+      </div>
+      <div class="row">
+        <div class="half">
+          <label>Preferred contact</label>
+          <select name="contact">
+            <option value="phone">Phone</option>
+            <option value="text">Text</option>
+            <option value="email">Email</option>
+          </select>
+        </div>
+        <div class="half">
+          <label>What I’d like to get (optional)</label>
+          <input name="wouldLike" inputmode="decimal" placeholder="$">
+          <div class="muted">Sharing a number helps us avoid wasted research if we’re too far apart.</div>
+        </div>
+      </div>
+
+      <label>Describe the toys/items you’re leaving with us</label>
+      <textarea name="items" required placeholder="What’s in the box? Any highlights, condition notes, or special figures?"></textarea>
+
+      <label>Estimate & waiver terms</label>
+      <div class="terms">
+        <ol>
+          <li><strong>Acknowledgment of Evaluation Process:</strong> I understand that Mad Rad Retro Toys will handle, inspect, and evaluate the items I am leaving in their possession for the purpose of providing an estimate of their value or condition.</li>
+          <li><strong>Assumption of Risk:</strong> I acknowledge that, during the process of handling and inspection, there is a potential risk of accidental damage to the items. I voluntarily assume all risks associated with this process.</li>
+          <li><strong>Release of Liability:</strong> I hereby release, discharge, and hold harmless Mad Rad Retro Toys, its owners, employees, and agents from any and all claims, demands, or causes of action arising out of or relating to any damage, accidental or otherwise, that may occur to the items during their possession.</li>
+          <li><strong>Agreement to Indemnify:</strong> I agree to indemnify and defend Mad Rad Retro Toys against any claims arising from my failure to disclose any pre-existing conditions or fragility of the items that may contribute to damage during the inspection process.</li>
+          <li><strong>Pickup and Payment Deadline:</strong> I understand that I have 10 calendar days from the date of the offer to either (a) accept the offer and collect payment, or (b) decline the offer and retrieve my items. If no action is taken within this 10-day period, Mad Rad Retro Toys reserves the right to consider the items abandoned and may dispose of them at their sole discretion.</li>
+          <li><strong>Duration of Agreement:</strong> This waiver and release of liability shall remain in effect for the duration of the items’ possession by Mad Rad Retro Toys for the purpose of providing an estimate.</li>
+        </ol>
+        
+        <label style="margin:0"><input type="checkbox" name="agree" required> I agree to the terms</label>
+        <label>Type your name as signature</label>
+        <input name="sigName" required placeholder="Full name">
+      </div>
+
+      <div class="row" style="margin-top:12px">
+        <button class="btn primary" type="submit">Submit</button>
+        <span id="msg" class="muted"></span>
+      </div>
+    </form>
+
+    <div id="printBlock" class="card" style="display:none">
+      <div class="printHdr">
+        <h2 style="margin:0 0 6px">Estimate Receipt</h2>
+        <div class="muted">Give one copy to the customer and attach one to the drop-off.</div>
+      </div>
+      <div id="printContent"></div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn primary" onclick="window.print()">Print</button>
+        <button class="btn success" onclick="location.href='?page=estimate'">New Estimate</button>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    function money(n){ if(n===''||n==null) return ''; const x=Number(String(n).replace(/[^\d.]/g,'')); return Number.isFinite(x)?('$'+x.toFixed(2)) : ''; }
+
+    const form = document.getElementById('estForm');
+    const msg  = document.getElementById('msg');
+    const printBlock = document.getElementById('printBlock');
+    const printContent = document.getElementById('printContent');
+
+    form.addEventListener('submit', function(e){
+      e.preventDefault();
+      msg.textContent = 'Submitting...';
+
+      const fd = new FormData(form);
+      const data = Object.fromEntries(fd.entries());
+      data.agree = !!fd.get('agree');
+
+      google.script.run
+        .withSuccessHandler(res=>{
+          if (!res || !res.ok){ msg.textContent = 'There was a problem saving your estimate.'; return; }
+          const reqId = res.reqId;
+
+          // Show printable summary (2 copies via browser print)
+          const html = `
+            <div style="border:1px dashed #2a2f6b; border-radius:8px; padding:10px; margin-bottom:12px">
+              <strong>Request ID:</strong> ${reqId}<br>
+              <strong>Name:</strong> ${data.first} ${data.last}<br>
+              <strong>Phone:</strong> ${data.phone||'-'} &nbsp; <strong>Email:</strong> ${data.email||'-'}<br>
+              <strong>Preferred contact:</strong> ${data.contact}<br>
+              <strong>“Would like to get”:</strong> ${money(data.wouldLike)||'(not provided)'}<br>
+              <strong>Items:</strong><br>
+              <div style="white-space:pre-wrap; background:#ffffff; border:1px solid #212457; padding:8px; border-radius:6px">${(data.items||'').replace(/[<>&]/g, s=>({ '<':'&lt;','>':'&gt;','&':'&amp;' }[s]))}</div>
+              <div style="margin-top:8px"><em>Signed:</em> ${data.sigName}</div>
+            </div>
+            <div class="muted">Attach this to the box. Print two copies.</div>
+          `;
+          printContent.innerHTML = html;
+          form.style.display = 'none';
+          printBlock.style.display = 'block';
+          msg.textContent = '';
+        })
+        .withFailureHandler(err=>{
+          msg.textContent = String(err && err.message ? err.message : err);
+        })
+        .apiEst_CreateRequest(data);
+    });
+  </script>
+</body>
+</html>

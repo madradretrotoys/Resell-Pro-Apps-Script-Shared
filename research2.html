@@ -1,0 +1,2421 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Research 2 — Image-first Identification</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="https://unpkg.com/cropperjs@1.6.2/dist/cropper.min.css">
+  <style>
+    :root { --bg:#0b0b12; --card:#121222; --ink:#dfe6ff; --muted:#9aa3c7; --acc:#4ea1ff; --ok:#29d17d; --warn:#ffba47; --bad:#ff5858; }
+    body { background:var(--bg); color:var(--ink); font:14px/1.35 ui-sans-serif,system-ui,Segoe UI,Roboto,Helvetica,Arial; margin:0; }
+    header { display:flex; align-items:center; gap:10px; padding:10px 14px; background:#0f0f1d; border-bottom:1px solid #1f2140; position:sticky; top:0; z-index:5; }
+    header h1 { font-size:16px; margin:0; font-weight:600; }
+    main { padding:14px; max-width:1200px; margin:0 auto; }
+    .card { background:var(--card); border:1px solid #1f2140; border-radius:12px; padding:14px; }
+    .row { display:flex; align-items:center; gap:10px; }
+    .grid { display:grid; gap:10px; }
+    .pill { background:#0f1128; border:1px solid #222457; border-radius:24px; padding:8px 10px; color:var(--ink); }
+    input, select, textarea { background:#0f1128; border:1px solid #222457; color:var(--ink); border-radius:8px; padding:8px; width:100%; }
+    textarea { min-height:110px; resize:vertical; }
+    label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+    h2 { font-size:18px; margin:0 0 10px; }
+    h3 { font-size:16px; margin:0 0 8px; }
+    .btn { background:#1a2047; color:#eaf1ff; border:1px solid #2a2f6b; padding:8px 12px; border-radius:10px; cursor:pointer; }
+    .btn.primary { background:linear-gradient(90deg,#2e73ff,#6d49ff); border:none; }
+    .btn.small { padding:6px 10px; font-size:12px; }
+    /* Disabled states */
+    .btn[disabled] { opacity:.5; cursor:not-allowed; filter:saturate(.6); }
+    select:disabled, input[disabled], textarea:disabled { opacity:.6; pointer-events:none; }
+    .muted { color:var(--muted); font-size:12px; }
+    .banner { background:#0f2b18; border:1px solid #1a5130; color:#bfffd9; padding:8px 10px; border-radius:8px; }
+    .thumbGrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:10px; }
+    .thumb { position:relative; border-radius:10px; overflow:hidden; border:1px solid #1f2140; }
+    .thumb img { width:100%; height:110px; object-fit:cover; display:block; }
+    .thumb .host { position:absolute; left:6px; bottom:6px; background:rgba(0,0,0,.55); padding:2px 6px; border-radius:999px; font-size:11px; }
+    .candCard { display:grid; grid-template-columns:70px 1fr auto; gap:10px; align-items:center; border:1px solid #262a59; border-radius:12px; padding:8px; }
+    .candCard img { width:70px; height:70px; object-fit:cover; border-radius:8px; background:#0e1133; }
+    .candCard .title { font-weight:600; }
+    .candCard .meta { color:var(--muted); font-size:12px; }
+    .candWrap { display:grid; gap:8px; }
+    .itemsGrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:10px; }
+    .item { border:1px solid #262a59; border-radius:12px; overflow:hidden; background:#0f1128; display:flex; flex-direction:column; }
+    .item img { width:100%; height:180px; object-fit:cover; }
+    .item .ttl { padding:8px; font-size:12px; color:#cfe0ff; flex:1; }
+    .item .meta { padding:8px; display:flex; justify-content:space-between; gap:6px; }
+    .p-ok { color:var(--ok); } .p-warn{ color:var(--warn);} .p-bad{ color:var(--bad);}
+    .slotWrap { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+    .slot { border:1px dashed #3a3e7a; border-radius:10px; padding:8px; min-height:78px; }
+    .slot .h { color:var(--muted); margin-bottom:6px; font-size:12px; }
+    .slot .v { font-weight:600; }
+    a { color:#9ec0ff; text-decoration:none; }
+    .item { position: relative; }
+    .item .pickBadge {
+      position:absolute; top:8px; left:8px; display:none;
+      background:#0f2b18; border:1px solid #1a5130; color:#bfffd9;
+      padding:2px 8px; border-radius:999px; font-size:11px;
+    }
+    .item.showBadge .pickBadge { display:block; }
+
+    .slot.flash { animation: slotFlash 1.0s ease-out; }
+    @keyframes slotFlash {
+      0%   { box-shadow:0 0 0 0 rgba(41,209,125,.8); }
+      100% { box-shadow:0 0 0 18px rgba(41,209,125,0); }
+    }
+
+    .toast {
+      position:fixed; right:12px; bottom:12px; z-index:9999;
+      background:#0f2b18; border:1px solid #1a5130; color:#bfffd9;
+      padding:10px 12px; border-radius:10px; opacity:0; transform:translateY(8px);
+      transition:opacity .25s, transform .25s;
+    }
+    .toast.show { opacity:1; transform:translateY(0); }
+
+    /* --- pick badges --- */
+    .badge {
+      position:absolute; top:8px; left:8px;
+      background:rgba(15,17,40,.92);
+      border:1px solid #2a2f6b;
+      padding:2px 8px; border-radius:999px;
+      font-size:11px; font-weight:600; color:#eaf1ff;
+    }
+    .badge.low  { border-color:#1e8f64; color:#bfffd9; }
+    .badge.mid  { border-color:#9a821e; color:#ffe9b5; }
+    .badge.high { border-color:#964646; color:#ffd0cf; }
+
+    /* ensure each .item is a positioned container for the badge */
+    .item { position:relative; }
+
+    /* --- small toast --- */
+    #toast {
+      position:fixed; right:14px; bottom:14px;
+      background:#0f2b18; border:1px solid #1a5130; color:#bfffd9;
+      padding:8px 12px; border-radius:10px; box-shadow:0 6px 20px rgba(0,0,0,.35);
+      opacity:0; transform:translateY(12px); transition:.25s ease;
+      pointer-events:none; z-index:50;
+    }
+    #toast.show { opacity:1; transform:translateY(0); }
+
+    /* ==== Light Theme Override (match Intake) ==== */
+    body{background:#fafafa !important;color:#111 !important}
+    header{background:#fff !important;border-bottom:1px solid #eee !important}
+    .card{background:#fff !important;border:1px solid #eee !important;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+    label{color:#111 !important}
+    input,select,textarea{background:#fff !important;border:1px solid #ddd !important;color:#111 !important}
+    .muted{color:#6b7280 !important}
+
+    /* Light theme  make Active/Sold item cards readable */
+    .itemsGrid .item{ background:#fff !important; border:1px solid #e5e7eb !important; }
+    .itemsGrid .item .ttl{ color:#111 !important; }
+    .itemsGrid .item .meta{ color:#111 !important; }
+
+
+    /* === FIX: make % chips visibly selected in both places === */
+    .offerChip.sel, .offerChip.selected{
+      background: linear-gradient(180deg,#dbeafe,#bfdbfe) !important;
+      border-color:#93c5fd !important;
+      color:#111 !important;
+    }
+    .btRow .chip.sel{
+      background: linear-gradient(90deg,#2e73ff,#6d49ff) !important;
+      border-color: transparent !important;
+      color:#fff !important;
+    }
+
+    /* Offer chips */
+    .offerChip{
+      display:inline-flex; align-items:center; gap:8px;
+      border:1px solid var(--line); padding:6px 10px; border-radius:9999px;
+      cursor:pointer; user-select:none; background:#fff; color:var(--ink); font-weight:600;
+    }
+    .offerChip .pct{font-feature-settings: "tnum" 1; font-variant-numeric: tabular-nums}
+    .offerChip.reco{outline:2px solid var(--brand); outline-offset:2px}
+    .offerChip.sel, .offerChip.selected{                   /* <- restored highlight */
+      background:linear-gradient(180deg,#dbeafe,#bfdbfe);
+      border-color:#93c5fd;
+    }
+
+    /* Buy Ticket drawer */
+    #btDrawer{background:#fff !important;color:#111 !important;border-left:1px solid #eee !important}
+    .btHead{background:#fff !important;border-bottom:1px solid #eee !important}
+    .btRow{border-bottom:1px solid #eee !important}
+    .btRow .mini{background:#fff !important;border:1px solid #ddd !important;color:#111 !important}
+    .btRow .btnSm{background:#fff !important;border:1px solid #d1d5db !important;color:#111 !important}
+    .btRow .chip{background:#fff !important;border:1px solid #93c5fd !important;color:#111 !important}
+    .btFoot{border-top:1px solid #eee !important}
+    .btBtn{background:#0ea5e9 !important;border:1px solid #0ea5e9 !important;color:#fff !important}
+    .btBtn.warn{background:#ef4444 !important;border-color:#ef4444 !important}
+
+  </style>
+</head>
+<body>
+  <script>
+    window.MADRAD_PAGE = 'research2';
+    window.MADRAD_EXEC_URL = '<?= execUrl ?>';
+    window.RES_DEBUG = true; // toggle verbose console logs
+  </script>
+  <?!= include('nav'); ?>
+
+  <header>
+    <h1>Research 2</h1><div class="muted">image-first identification â†’ eBay active/sold â†’ pricing â†’ compose â†’ intake</div>
+  </header>
+
+  <main>
+    <!-- 1) Image & clues -->
+    <section class="card">
+      <h2>1) Image & clues</h2>
+      <div class="grid" style="grid-template-columns:260px 1fr; align-items:start;">
+        <div>
+          <label>Upload image</label>
+          <input type="file" accept="image/*" id="picker" />
+          <div class="row" style="margin-top:6px">
+            <button class="btn small" id="btnStartCrop">Start crop</button>
+            <button class="btn small" id="btnApplyCrop" disabled>Apply</button>
+            <button class="btn small" id="btnCancelCrop" disabled>Cancel</button>
+            <button class="btn small" id="btnOpenCam" type="button" onclick="openCamera()">Use camera</button>
+          </div>
+          <div id="camBox" style="display:none; margin-top:8px">
+            <video id="camVideo" autoplay playsinline style="width:240px;border-radius:8px;border:1px solid #1f2140"></video>
+            <div class="row" style="margin-top:6px">
+              <button class="btn small" type="button" onclick="snapPhoto()">Take photo</button>
+              <button class="btn small" type="button" onclick="closeCamera()">Close camera</button>
+            </div>
+          </div>
+
+          <div class="muted" id="imgResult" style="margin-top:6px">No image</div>
+          <div id="imgPreview" style="margin-top:8px"></div>
+        </div>
+
+        <div class="grid" style="grid-template-columns:repeat(3,1fr)">
+          <div><label>Year</label><input id="fldYear" placeholder="e.g., 1990" /></div>
+         <div><label>Brand / Manufacturer</label><input id="fldBrand" placeholder="Mattel, Playmates…"/></div>
+
+          <div><label>Line / Series</label><input id="fldSeries" placeholder="TMNT, MOTU..."/></div>
+          <div><label>Product / Character / Variant</label><input id="fldName" placeholder="Metalhead, Yellow Belly..."/></div>
+          <div><label>UPC / EAN</label><input id="fldUPC" placeholder="Optional"/></div>
+          <div><label>Model / Part #</label><input id="fldMPN" placeholder="Optional"/></div>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:10px; justify-content:flex-end">
+        <span class="muted" id="statusA" style="margin-right:8px"></span>
+        <button class="btn primary" onclick="analyze()">Analyze</button>
+
+        <!-- MRAD-START: Google Lens integration buttons -->
+        <span id="statusLens" class="muted" style="margin-left:10px;"></span>
+        <button class="btn" id="btnLensAuto" type="button" onclick="openLensAuto()" style="margin-left:6px">Google Lens Search</button>
+        
+        <!-- MRAD-END: Google Lens integration buttons -->
+      </div>
+    </section>
+
+    <!-- 2) Sources + candidates -->
+    <section class="card" style="margin-top:12px">
+      <h2>2) Evidence & candidates</h2>
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <div class="muted">We'll show at least 10 distinct image sources when available. Pick one, or click None match.</div>
+        <button class="btn small" onclick="noneMatch()" id="btnNone" disabled>None match (show more)</button>
+      </div>
+      <div id="srcGrid" class="thumbGrid" style="margin-top:10px"></div>
+      <div id="candWrap" class="candWrap" style="margin-top:12px"></div>
+      <div id="candBanner" style="margin-top:8px"></div>
+
+      <!-- MRAD-START: Lens results block -->
+      <div id="lensWrap" class="candWrap" style="margin-top:18px; border-top:1px solid #1f2140; padding-top:12px"></div>
+      <div id="lensBanner" style="margin-top:8px"></div>
+      <!-- MRAD-END: Lens results block -->
+    </section>
+
+    <!-- 3) eBay search -->
+    <section class="card" style="margin-top:12px">
+      <h2>3) eBay search</h2>
+      <label>Search description</label>
+      <div class="row">
+        <input id="searchQ" placeholder="Confirm/edit the search phrase...">
+        <button id="btnSearchEbay" class="btn" onclick="launchAndFetch()">Search on eBay</button>
+      </div>
+      <div class="muted" style="margin-top:6px">
+        Returns first 40 active BUY-IT-NOW listings and opens eBay in a new tab.
+      </div>
+
+      <div id="activeWrap" style="margin-top:12px; display:none">
+        <div class="row">
+          <h3 style="margin:0">Active results</h3>
+          <span class="muted" id="activeNote"></span>
+        </div>
+        <div class="itemsGrid" id="activeGrid" style="margin-top:8px"></div>
+
+        <h3 style="margin-top:12px">Pick comps (Active)</h3>
+        <div class="slotWrap">
+          <div class="slot"><div class="h">Lowest</div><div class="v" id="slotLow">—</div></div>
+          <div class="slot"><div class="h">Mid</div><div class="v" id="slotMid">—</div></div>
+          <div class="slot"><div class="h">Highest</div><div class="v" id="slotHigh">—</div></div>
+
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn" onclick="confirmActive()">Confirm Active Picks</button>
+          <button class="btn" style="margin-left:6px" onclick="resetActivePicks()">Reset picks</button>
+          <span class="muted" id="activeConfirmNote"></span>
+        </div>
+        <div class="grid" style="grid-template-columns:repeat(4,1fr);gap:10px">
+        <div><label>Total Active</label><input type="number" id="actCount" min="0" step="1"/></div>
+        <div><label>Active Low (total)</label><input type="number" id="actLow" step="0.01"/></div>
+        <div><label>Active Mid (total)</label><input type="number" id="actMid" step="0.01"/></div>
+        <div><label>Active High (total)</label><input type="number" id="actHigh" step="0.01"/></div>
+      </div>
+      </div>
+    </section>
+
+    <!-- 4) Sold (90 days) -->
+    <section class="card" style="margin-top:12px">
+      <h2>4) Sold (90 days)</h2>
+      <div class="row">
+        <button class="btn" onclick="fetchSold()">Open Ebay Sold</button>
+        <span class="muted" id="soldNote"></span>
+      </div>
+      <div class="itemsGrid" id="soldGrid" style="margin-top:10px"></div>
+
+      <div class="grid" style="grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px">
+        <div><label>Total Sold</label><input type="number" id="soldCount" min="0" step="1"/></div>
+        <div><label>Sold Low (total)</label><input type="number" id="soldLow" step="0.01"/></div>
+        <div><label>Sold Mid (median total)</label><input type="number" id="soldMid" step="0.01"/></div>
+        <div><label>Sold High (total)</label><input type="number" id="soldHigh" step="0.01"/></div>
+      </div>
+    </section>
+
+    <!-- 5) Sell-through & price -->
+    <section class="card" style="margin-top:12px">
+      <h2>5) Sell-through & price</h2>
+      
+      <div class="row" style="margin-top:10px">
+        <button class="btn primary" onclick="computePricing()">Compute</button>
+        <span class="muted" id="compStatus"></span>
+      </div>
+      <div class="grid" style="grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px">
+        <div><label>Sell-Through Rate</label><input id="sellThrough" readonly class="pill"/></div>
+        <div><label>Recommended Sell Price</label><input id="recPrice" readonly class="pill"/></div>
+        <div><label>Alternate Sell Price (override)</label><input type="number" id="altPrice" step="0.01"/></div>
+      </div>
+    </section>
+
+    <!-- 6) Condition & compose -->
+    <section class="card" style="margin-top:12px">
+      <h2>6) Condition & compose</h2>
+
+      <label style="margin-top:10px">Short Description (title)
+        <div class="row">
+          <input type="text" id="shortDesc" placeholder="Short title">
+          <button class="btn small" onclick="copyText('shortDesc')">Copy</button>
+        </div>
+      </label>
+
+      <!-- NEW: default-checked auto-description checkbox -->
+      <div class="row" style="margin-top:8px">
+        <input type="checkbox" id="chkAutoDesc" checked style="width:auto">
+        <label for="chkAutoDesc" style="margin:0">Use standard description (recommended)</label>
+      </div>
+      <div class="muted" style="margin-top:4px">
+        When checked: we'll use the short title + a standard note and disable the fields below.
+        Uncheck to enable the fields and build a custom long description from your selections.
+      </div>
+
+      <div class="row" style="margin-top:8px">
+        <button id="btnCompose" class="btn" onclick="compose()">Compose long Description</button>
+        <span class="muted" id="composeNote"></span>
+      </div>
+
+      <div class="grid" style="grid-template-columns:repeat(3,1fr);gap:8px">
+        <div><label>Item Condition</label><select id="selItemCond"><option value="">Select</option><option>New</option><option>Used</option></select></div>
+        <div><label>Packaging</label><select id="selPackaging"><option value="">Select</option><option>Loose (no original packaging)</option><option>Original packaging – Sealed</option><option>Original packaging Opened</option></select></div>
+        <div><label>Packaging Condition</label><select id="selPackGrade"><option value="">Select</option><option>Poor</option><option>Fair</option><option>Good</option><option>Great</option><option>Excellent</option></select></div>
+        <div><label>Item Cosmetic Grade</label><select id="selItemGrade"><option value="">Select</option><option>Poor</option><option>Fair</option><option>Good</option><option>Great</option><option>Excellent</option></select></div>
+        <div><label>Functionality</label><select id="selFunction"><option value="">Select</option><option>Working</option><option>Untested</option><option>Broken</option></select></div>
+        <div><label>Completeness</label><select id="selComplete"><option value="">Select</option><option>Complete</option><option>Incomplete (missing accessories)</option><option>Accessory only</option></select></div>
+      </div>
+
+      <label style="margin-top:8px">Long Description
+        <div class="row">
+          <textarea id="longDesc" placeholder="Series, character/variant, year/maker, condition, packaging, completeness, notes, shipping."></textarea>
+          <button class="btn small" onclick="copyText('longDesc')">Copy</button>
+        </div>
+      </label>
+    </section>
+
+    <!-- 7) Finalize -->
+    <section class="card">
+      <h2>7) Finalize</h2>
+
+      <div class="row" id="finalActions" style="gap:12px;align-items:center">
+        <!-- SELL action -->
+        <button class="btn" id="btnSendToIntake" type="button" onclick="sendToIntake()">Send to Intake</button>
+
+        <!-- BUY action goes here (we'll move/create it in JS) -->
+        <span id="buyActionSlot"></span>
+
+        <span id="saveMsg" class="muted" style="margin-left:12px"></span>
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    let lastImageB64=null, lastDataUrl='', camStream=null, lastCandidates=[], selectedCandidate=null;
+    // NEW: keep track of the image MIME type for staging/Lens (default to jpeg)
+    let lastMimeType = 'image/jpeg';
+    let activeItems=[], chosen={low:null,mid:null,high:null};
+    let lastEvidence = { pages:[], thumbs:[], titles:[] };
+    let lastEbayFetchAt = 0;
+
+    function $(id){return document.getElementById(id)}
+    function money(n){ return (n==null||!isFinite(n)) ? '—' : ('$'+Number(n).toFixed(2)); }
+    function hostOf(u){ try{ return new URL(u).hostname.replace(/^www\./,''); }catch(e){ return ''; } }
+    function copyText(id){const el=$(id); el.select?.(); document.execCommand('copy')}
+
+    // Safe text â†’ HTML
+    function escapeHtml(s){
+      return String(s || '')
+        .replace(/&/g,'&amp;')
+        .replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;')
+        .replace(/'/g,'&#39;');
+    }
+
+    // NEW: utility to pull "image/png" / "image/jpeg" out of a data URL
+    function mimeFromDataUrl(s){
+      try {
+        const m = String(s || '').match(/^data:([^;]+);/i);
+        return m ? m[1] : '';
+      } catch(_) { return ''; }
+    }
+
+    function cleanSearch(q){
+      const noNeg = String(q||'')
+        .replace(/\s-\s*("(?:[^"]+)"|'(?:[^']+)'|[^\s]+)/g,'')
+        .replace(/\s+/g,' ')
+        .trim();
+      return dedupeWords(noNeg);
+    }
+
+
+    function navBase(){
+      const base = (window.MADRAD_EXEC_URL || "<?= execUrl ?>").replace(/\/+$/,'');
+      return base;
+    }
+
+    // Resolve the ticket id from URL or a bootstrapped state object
+    function resolveTicketId(){
+      return String(window.RESEARCH_TICKET_ID || '');
+    }
+
+    function gotoBuyTicket(ticketId){
+      const url = navBase() + '?' + new URLSearchParams({ page:'bticket', ticket: ticketId }).toString();
+      console.debug('[research2] Navigating back to Buy Ticket â†’', url);
+      (window.top || window).location.href = url; // always navigate the top window
+      // If navigation is blocked by sandbox/no user-activation, show a clear message.
+      function showBuyAddedBanner(){
+        // 1) ensure the button reads Added and is not busy
+        const btn = $('rp2_addToTicket');
+        if (btn){
+          btn.disabled = true;
+          btn.removeAttribute('aria-busy');
+          btn.textContent = 'Added';
+        }
+        // 2) inject a visible banner next to the final actions
+        let msg = document.getElementById('buyNavMsg');
+        if (!msg){
+          msg = document.createElement('span');
+          msg.id = 'buyNavMsg';
+          msg.className = 'banner';           // you already have .banner styles
+          msg.style.marginLeft = '8px';
+          // put it right after the buy action slot (works even if the button moved)
+          const slot = document.getElementById('buyActionSlot') || document.getElementById('finalActions');
+          (slot || document.body).insertAdjacentElement('afterend', msg);
+        }
+        msg.innerHTML = 'âœ… Item added to Buy Ticket. Please press your browser <b>Back</b> to return to the ticket.';
+        msg.style.display = 'inline-block';
+        // small toast too, so it's hard to miss
+        try { showSmallToast('Item added. Press Back to view your Buy Ticket.'); } catch(_){}
+      }
+
+      // Try multiple navigation strategies, then detect if we're still here.
+      const startUrl = String(location.href);
+      try { (window.top || window).location.href = url; } catch(_){}
+      try { window.open(url, '_top'); } catch(_){}
+      try {
+        const a = document.createElement('a');
+        a.href = url; a.target = '_top'; a.rel = 'noopener';
+        document.body.appendChild(a); a.click(); setTimeout(()=>a.remove(),0);
+      } catch(_){}
+
+      // If we're still on the same page after ~800ms and the page didn't start hiding, assume blocked.
+      setTimeout(() => {
+        const stillHere = (String(location.href) === startUrl) && (document.visibilityState !== 'hidden');
+        if (stillHere) showBuyAddedBanner();
+      }, 800);
+    }
+
+    /** --- LEGACY STUB (silences the old drawer code safely) ------------- */
+    window.hydrateFromServerTicket = window.hydrateFromServerTicket || function(){ 
+      console.debug('[research2] hydrateFromServerTicket stub called (drawer disabled)');
+    };
+
+    //your existing helpers
+
+    /* ---------- context helpers (URL-aware via Apps Script) ---------- */
+
+      // This is the single source of truth for "did we come from a Buy Ticket?"
+      let NAV_FROM_TICKET = null; // null until we resolve the outer URL
+      // NEW: cache the actual ticket id once at boot so we can reuse it later
+      // We use a window-scoped var so any module/function can read it reliably.
+      window.RESEARCH_TICKET_ID = window.RESEARCH_TICKET_ID || '';
+      // Any code that needs to know context should call this.
+
+      function fromTicketCtx(){
+        return !!NAV_FROM_TICKET;
+      }
+
+    // ---- enable/disable & show/hide correct actions at bottom + header ----
+    function refreshActionButtons() {
+      const addBtn   = $('rp2_addToTicket');   // now living at the bottom in #buyActionSlot
+      const sendBtn  = $('btnSendToIntake');
+      const hasTicket = fromTicketCtx();
+      const isBuy     = (PRICE_MODE === 'buy');
+
+      console.debug('[research2] refreshActionButtons', { PRICE_MODE, hasTicket });
+
+      // BUY: show Add-to-Ticket only; SELL: show Send-to-Intake only
+      if (addBtn) {
+        addBtn.style.display = isBuy ? 'inline-flex' : 'none';
+        addBtn.disabled = !hasTicket || !isBuy;              // disabled if we didn't come from a Buy Ticket
+        addBtn.title    = (!hasTicket ? 'Open from a Buy Ticket to enable' : '');
+      }
+
+      if (sendBtn) {
+        sendBtn.style.display = !isBuy ? 'inline-flex' : 'none';
+        // When we came from a Buy Ticket, always keep Send to Intake disabled to avoid mistakes.
+        sendBtn.disabled = hasTicket;
+        sendBtn.title    = hasTicket ? 'Disabled when opened from a Buy Ticket' : '';
+      }
+    }
+
+    let SOLD_AUTO_LOCK = false;
+
+    function maybeFetchSold(){
+      const q = document.getElementById('searchQ')?.value?.trim();
+      if (!q) return;                                   // nothing to search yet
+
+      const note = document.getElementById('soldNote')?.textContent || '';
+      const grid = document.getElementById('soldGrid');
+      const count = Number(document.getElementById('soldCount')?.value || 0);
+
+      const isLoading = note.includes('Loading sold');
+      const alreadyHasRows = grid && grid.children.length > 0;
+      const alreadyFilled  = count > 0;
+
+      if (SOLD_AUTO_LOCK || isLoading || alreadyHasRows || alreadyFilled) return;
+
+      SOLD_AUTO_LOCK = true;
+      // next tick so UI can paint the Active grid first
+      setTimeout(() => {
+        try { fetchSold(); }
+        finally { SOLD_AUTO_LOCK = false; }
+      }, 0);
+    }
+
+
+    /* ---------- file picker preview ---------- */
+    (function(){
+      const picker = document.getElementById('picker');
+      if (!picker) return;
+      picker.addEventListener('change', (e) => {
+        const f = e.target.files && e.target.files[0];
+        if (!f) { $('imgResult').textContent='No image'; $('imgPreview').innerHTML=''; return; }
+        const fr = new FileReader();
+        fr.onload = () => {
+          const dataUrl = fr.result;
+          lastDataUrl  = dataUrl;
+          lastImageB64 = String(dataUrl).split(',')[1];
+
+          // NEW: set MIME type from file or data URL; fall back to jpeg
+          lastMimeType = (f && f.type) || mimeFromDataUrl(dataUrl) || 'image/jpeg';
+
+          $('imgPreview').innerHTML = `<img src="${dataUrl}" alt="" style="max-width:240px;border-radius:8px;border:1px solid #1f2140">`;
+          $('imgResult').textContent = 'Image ready';
+          window.ResellProCrop?.onImageChanged?.(dataUrl);
+          if (window.RES_DEBUG) console.log('[UI] image selected, size=', (lastImageB64||'').length, 'bytes b64', 'mime=', lastMimeType);
+        };
+        fr.readAsDataURL(f);
+      });
+    })();
+
+    /* ---------- camera ---------- */
+    async function openCamera(){
+      try{
+        camStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'},audio:false});
+        $('camVideo').srcObject=camStream; $('camBox').style.display='block'; $('imgResult').textContent='Camera ready';
+      }catch(e){ alert('Camera blocked or unavailable.'); }
+    }
+    function closeCamera(){ if(camStream) camStream.getTracks().forEach(t=>t.stop()); camStream=null; $('camBox').style.display='none'; }
+    function snapPhoto(){
+      const v=$('camVideo'); if(!v.videoWidth){alert('Camera not ready');return;}
+      const c=document.createElement('canvas'); c.width=v.videoWidth; c.height=v.videoHeight;
+      c.getContext('2d').drawImage(v,0,0);
+      const dataUrl = c.toDataURL('image/jpeg', 0.9);
+      lastDataUrl   = dataUrl;
+      lastImageB64  = dataUrl.split(',')[1];
+      // NEW: camera snapshots are jpeg
+      lastMimeType  = 'image/jpeg';
+      $('imgPreview').innerHTML=`<img src="${dataUrl}" style="max-width:240px;border:1px solid #1f2140;border-radius:8px">`;
+      window.ResellProCrop?.onImageChanged?.(dataUrl);
+      $('imgResult').textContent='Photo captured'; closeCamera();
+      if (window.RES_DEBUG) console.log('[UI] photo snapped, b64 len=', (lastImageB64||'').length);
+    }
+
+    /* ---------- metadata ---------- */
+    function gatherMeta(){
+      return {
+        year:$('fldYear').value.trim(),
+        brand:$('fldBrand').value.trim(),
+        series:$('fldSeries').value.trim(),
+        name: $('fldName').value.trim(),
+        upc:  $('fldUPC').value.trim(),
+        mpn:  $('fldMPN').value.trim()
+      };
+    }
+
+    /* ---------- analyze ---------- */
+    function analyze(){
+      $('statusA').textContent='Analyzing'; $('btnNone').disabled=true; selectedCandidate=null;
+      const meta=gatherMeta();
+      if(!lastImageB64 && !meta.name && !meta.brand && !meta.series){ alert('Add at least one clue or select a photo.'); $('statusA').textContent=''; return; }
+
+      const imgB64 = (window.ResellProCrop?.getImageB64ForAnalysis)
+        ? ResellProCrop.getImageB64ForAnalysis(lastImageB64)
+        : (lastImageB64 || '');
+
+      if (window.RES_DEBUG) console.groupCollapsed('[UI] apiR2_Analyze'); 
+      if (window.RES_DEBUG) console.log('meta:', meta);
+
+      google.script.run
+        .withSuccessHandler(r=>{
+          if (window.RES_DEBUG) { console.log('result:', r); console.groupEnd(); }
+          if(!r||!r.ok){ $('statusA').textContent='No result'; alert(r&&r.error?r.error:'Analyze failed'); return; }
+          $('statusA').textContent='Done';
+          renderEvidence(r.evidence||{});
+          renderCandidates(r.candidates||[]);
+          $('btnNone').disabled = !(r.candidates && r.candidates.length);
+        })
+        .withFailureHandler(err=>{ if (window.RES_DEBUG) { console.log('error:', err); console.groupEnd(); } $('statusA').textContent='Error'; alert(err && err.message ? err.message : String(err)); })
+        .apiR2_Analyze(imgB64||'', 'image/jpeg', meta, lastCandidates.map(c=>c.sig||'')); // avoid repeats
+    }
+
+    function renderEvidence(ev){
+      lastEvidence = ev || { pages:[], thumbs:[], titles:[] };
+      const pages = Array.isArray(ev.pages) ? ev.pages : [];
+      const thumbs = Array.isArray(ev.thumbs) ? ev.thumbs : [];
+      const titles = Array.isArray(ev.titles) ? ev.titles : [];
+      const byHost = new Map();
+      pages.forEach((u,i) => {
+        const h=hostOf(u); if(!h) return;
+        if(!byHost.has(h)) byHost.set(h,{u, t: thumbs[i] || thumbs.find(Boolean) || '', title: titles[i] || ''});
+      });
+      const list = Array.from(byHost.values()).slice(0,18);
+      const grid = $('srcGrid'); grid.innerHTML='';
+      list.forEach(x=>{
+        const t = x.t || x.u;
+        const div=document.createElement('div'); div.className='thumb';
+        div.innerHTML = `<a href="${x.u}" target="_blank" title="${(x.title||'').replace(/"/g,'&quot;')}"><img src="${t}" referrerpolicy="no-referrer"/></a><div class="host">${hostOf(x.u)}</div>`;
+        grid.appendChild(div);
+      });
+      if (window.RES_DEBUG) console.log('[UI] evidence pages=', pages.length, 'thumbs=', thumbs.length);
+    }
+
+    function chooseThumb(idx, c){
+      if (c && c.thumb) return c.thumb;
+      const ts = lastEvidence && Array.isArray(lastEvidence.thumbs) ? lastEvidence.thumbs : [];
+      if (ts.length) return ts[idx % ts.length];
+      return lastDataUrl || '';
+    }
+
+    function renderCandidates(list){
+      lastCandidates = list || [];
+      const wrap = $('candWrap'); wrap.innerHTML='';
+      if(!lastCandidates.length){ wrap.innerHTML='<div class="muted">No candidates from AI” refine clues or try another photo.</div>'; return; }
+      lastCandidates.forEach((c,i)=>{
+        const conf = (c.confidence!=null) ? ` (${Math.round(c.confidence*100)}%)` : '';
+        const meta = [c.brand,c.line,c.year,c.variant].filter(Boolean).join(' Â· ');
+        const img = chooseThumb(i, c);
+        const src = c.src || '';
+        const srcHost = src ? hostOf(src) : '';
+        const div=document.createElement('div'); div.className='candCard';
+        div.innerHTML = `
+          <a href="${src||'#'}" target="_blank" title="${src ? 'Open source page' : ''}"><img src="${img}" alt=""></a>
+          <div>
+            <div class="title">${c.name||'(Unnamed)'}<span class="muted">${conf}</span></div>
+            <div class="meta">${meta||''}</div>
+            ${src ? `<div class="meta" style="margin-top:4px"><a href="${src}" target="_blank">Source: ${srcHost}</a></div>` : ''}
+          </div>
+          <div><button class="btn small" onclick="confirmCandidate(${i})">Use</button></div>`;
+        wrap.appendChild(div);
+      });
+      $('candBanner').innerHTML = lastCandidates.length
+        ? '<div class="muted">Pick one or click “None match” for more choices.</div>'
+        : '';
+      if (window.RES_DEBUG) console.log('[UI] candidates=', lastCandidates.length);
+    }
+
+    /* ===== MRAD-START: Google Lens integration (aggressive + manual fallback) ===== */
+
+    // Feature flag: keep old relay code around but OFF by default.
+    const LENS_USE_RELAY = false;
+
+    let lensSessionKey = null;
+    let lensCandidates = [];   // separate storage; we render them in #lensWrap without touching lastCandidates
+
+      function makeLensSessionKey(){
+        // Simple random token per click to pair results to this tab
+        const rand = Math.random().toString(36).slice(2);
+        const ts = Date.now();
+        return 'lens_' + ts + '_' + rand;
+      }
+
+      function openLensAuto(){
+        try {
+          if (!lastImageB64) { alert('Take or upload a photo first.'); return; }
+          if (window.RES_DEBUG) console.groupCollapsed('[Lens][Auto] start');
+          if (window.RES_DEBUG) console.log('[Lens][Auto] disabling UI, staging image…');
+          disableLensUI(true, 'Preparing image…');
+
+          google.script.run
+            .withSuccessHandler(function(res){
+              if (window.RES_DEBUG) console.log('[Lens][Auto] StageImage result:', res);
+              if (!(res && res.ok && res.url)) {
+                disableLensUI(false);
+                $('statusLens').textContent = 'Failed to stage image: ' + (res && res.error ? res.error : 'Unknown error');
+                if (window.RES_DEBUG) console.groupEnd();
+                return;
+              }
+
+              const imgUrl = res.url;
+              lensSessionKey = makeLensSessionKey();
+
+              // Build payload WITHOUT a relay; rely on window.opener + postMessage from Lens.
+              const payload = { key: lensSessionKey, image: imgUrl };
+              const openUrl = 'https://www.google.com/?olud#resellpro=' + encodeURIComponent(JSON.stringify(payload));
+              if (window.RES_DEBUG) console.log('[Lens][Auto] opening Lens with payload:', payload, '\n→', openUrl);
+
+              const w = window.open(openUrl, '_blank');
+
+              if (!w) {
+                $('statusLens').textContent = 'Popup blocked - please allow popups and try again.';
+                disableLensUI(false);
+                if (window.RES_DEBUG) console.groupEnd();
+                return;
+              }
+
+              $('statusLens').textContent = 'Opening Lens… waiting for results (tab opened).';
+              if (window.RES_DEBUG) console.log('[Lens][Auto] tab opened. Expecting key:', lensSessionKey);
+
+              const expectKey = lensSessionKey;
+              setTimeout(function(){
+                if (lensSessionKey === expectKey) {
+                  $('statusLens').textContent = 'Didn’t hear back from Lens. The tab may be blocked or slow.';
+                  const banner = $('lensBanner');
+                  if (banner) {
+                    banner.innerHTML = '<div class="muted">If the Lens tab copied results to your clipboard, <a href="#" onclick="pasteLensClipboard();return false;">click here to paste them</a>. You can also try “Lens (Manual)”.</div>';
+                  }
+                  if (window.RES_DEBUG) console.warn('[Lens][Auto] timed out waiting for postMessage (15s).');
+                  disableLensUI(false);
+                  if (window.RES_DEBUG) console.groupEnd();
+                }
+              }, 15000);
+            })
+            .withFailureHandler(function(err){
+              disableLensUI(false);
+              $('statusLens').textContent = 'Failed to stage image: ' + (err && err.message ? err.message : String(err || ''));
+              if (window.RES_DEBUG) { console.warn('[Lens][Auto] StageImage failed:', err); console.groupEnd(); }
+            })
+            .apiR2_StageImage(lastImageB64, lastMimeType || 'image/jpeg');
+        } catch (e) {
+          disableLensUI(false);
+          $('statusLens').textContent = 'Lens error: ' + (e && e.message ? e.message : String(e||''));
+          if (window.RES_DEBUG) { console.warn('[Lens][Auto] exception:', e); try{console.groupEnd();}catch(_){ } }
+        }
+      }
+
+
+
+
+
+
+      function disableLensUI(disabled, statusText){
+        try {
+          if (window.RES_DEBUG) console.log('[Lens][UI] disableLensUI(', !!disabled, ',', statusText, ')');
+          const a = $('btnLensAuto');
+          if (a) { a.disabled = !!disabled; a.textContent = disabled ? 'Working' : 'Google Lens Search'; }
+          //if (b) { b.disabled = !!disabled; b.textContent = disabled ? 'Working' : 'Lens (Manual)'; }
+          if (typeof statusText === 'string') $('statusLens').textContent = statusText;
+        } catch(e) {
+          if (window.RES_DEBUG) console.warn('[Lens][UI] disableLensUI exception', e);
+        }
+      }
+      // Receive results from the Tampermonkey script (running on google.* / lens.google.com)
+      window.addEventListener('message', function(ev){
+        try {
+          const origin = ev.origin || '';
+          const data = ev && ev.data;
+
+          // Allow google.* and lens.google.com
+          const originOk = 
+          /^https:\/\/([a-z0-9-]+\.)*google\.[a-z.]+$/i.test(ev.origin || '') ||   // *.google.TLD
+          /^https:\/\/lens\.google\.com$/i.test(ev.origin || '') ||                // lens.google.com
+          (ev.origin === location.origin);                                         // our relay (same origin)
+
+          
+
+          if (!originOk || !data || data.type !== 'resellpro_lens_results') return;
+
+          // Must match the lensSessionKey we issued for this run
+          if (!lensSessionKey || data.key !== lensSessionKey) {
+            if (window.RES_DEBUG) console.warn('[Lens][message] session key mismatch', {have:lensSessionKey, got:data.key});
+            return;
+          }
+
+          // Normalize items from TM ({title,url,thumb} → our candidate shape)
+          const items = Array.isArray(data.items) ? data.items : [];
+          if (!items.length) {
+            $('statusLens').textContent = 'Lens returned no structured results. Use Manual fallback.';
+            return;
+          }
+
+          lensCandidates = items.slice(0,10).map(it => ({
+            name: it.title || it.text || '(Untitled)',
+            brand: '', line: '', variant: '', year: '',
+            src: it.url || '',
+            thumb: it.thumb || '',
+            confidence: null,
+            _origin: 'lens'
+          }));
+
+          if (window.RES_DEBUG) {
+            console.groupCollapsed('[Lens][message] received', lensCandidates.length, 'items');
+            try { console.table(lensCandidates.map((x,i)=>({i, title:x.name, url:x.src}))); } catch(_) { console.log(lensCandidates); }
+            console.groupEnd();
+          }
+
+          renderLensCandidates(lensCandidates);
+          $('statusLens').textContent = 'Lens results imported. Pick one or click “None match”.';
+          disableLensUI(false);
+        } catch(e){
+          $('statusLens').textContent = 'Lens error: ' + (e && e.message ? e.message : String(e||''));
+          disableLensUI(false);
+          if (window.RES_DEBUG) console.error('[Lens][message] exception:', e);
+        }
+      }, true);
+
+      // === Lens relay bridge (auto-import without opener) ===
+      (function(){
+        if (!LENS_USE_RELAY) { return; }   // <-- relay disabled
+
+        const RELAY_KEY = 'rp_lens_results';
+
+        // If this tab was opened as the relay (#lensRelay=1), accept one postMessage and hand off via localStorage
+        const isRelay = /[?#]lensRelay=1/i.test(location.href);
+        if (isRelay) {
+          window.addEventListener('message', function(ev){
+            const d = ev && ev.data;
+            if (!d || d.type !== 'resellpro_lens_results') return;
+            try {
+              localStorage.setItem(RELAY_KEY, JSON.stringify({ ts:Date.now(), key: d.key||'', items: d.items||[] }));
+            } catch(_) {}
+            try { window.close(); } catch(_) {}
+          });
+        }
+
+        // In the main page, consume the relay write
+        window.addEventListener('storage', function(ev){
+          if (ev.key !== RELAY_KEY || !ev.newValue) return;
+          let payload=null; try { payload = JSON.parse(ev.newValue); } catch(_){}
+          if (!payload || !Array.isArray(payload.items)) return;
+
+          lensSessionKey = ''; // no longer waiting
+          const mapped = payload.items.slice(0,10).map(it => ({
+            name: it.title || '(Untitled)',
+            brand:'', line:'', variant:'', year:'',
+            src: it.url || '',
+            thumb: it.thumb || '',
+            confidence: null,
+            _origin: 'lens'
+          }));
+          lensCandidates = mapped;
+          renderLensCandidates(mapped);
+          $('statusLens').textContent = 'Lens results imported automatically.';
+          try { localStorage.removeItem(RELAY_KEY); } catch(_){}
+        });
+      })();
+
+      // Optional: BroadcastChannel shim (no-op today, but future-proofs if the userscript ever broadcasts)
+      try {
+        const bc = new BroadcastChannel('resellpro_lens');
+        bc.onmessage = (m) => {
+          try {
+            // Re-emit as a normal message event so the listener above can handle it uniformly
+            window.dispatchEvent(new MessageEvent('message', { data: m.data, origin: m.origin || '' }));
+          } catch(_){}
+        };
+      } catch(_){}
+
+      // Minimal renderer for Lens candidates (keeps your current card styling)
+      function renderLensCandidates(list){
+        const wrap = $('lensWrap'); wrap.innerHTML = '';
+        if (!Array.isArray(list) || !list.length){
+          wrap.innerHTML = '<div class="muted">No Lens results yet. Use “Lens (Auto-Import)” or “Lens (Manual)”.</div>';
+          $('lensBanner').innerHTML = '';
+          return;
+        }
+        list.forEach(function(c, i){
+          const img = c.thumb || lastDataUrl || '';
+          const src = c.src || '';
+          const srcHost = src ? hostOf(src) : '';
+          const div = document.createElement('div'); div.className = 'candCard';
+          div.innerHTML = `
+            <a href="${src||'#'}" target="_blank" title="${src ? 'Open source page' : ''}"><img src="${img}" alt=""></a>
+            <div>
+              <div class="title">${escapeHtml(c.name||'(Unnamed)')} <span class="muted">[Lens]</span></div>
+              <div class="meta">${escapeHtml(srcHost||'')}</div>
+              <div class="row" style="gap:6px;margin-top:6px">
+                <button class="btn small" onclick="confirmLens(${i})">Use this</button>
+                <a class="btn small" href="${src||'#'}" target="_blank">Open</a>
+              </div>
+            </div>`;
+          wrap.appendChild(div);
+        });
+        $('candBanner').innerHTML = `<div class="banner">✅ Candidates imported from Google Lens. Review the search text, then click “Search on eBay”.</div>`;
+      }
+
+
+      function pasteLensClipboard(){
+        if (window.RES_DEBUG) console.groupCollapsed('[Lens][clipboard] paste start');
+        try {
+          const tsv = prompt('Paste Lens results here:\nEither "title\\turl" or "title\\turl\\tthumb" per line.', '');
+          if (!tsv) return;
+
+          const clean = (t, u) => {
+            let s = String(t||'').replace(/\s+/g,' ').trim();
+            try {
+              const host = new URL(u||'').hostname.replace(/^www\./,'').split('.')[0];
+              if (host) s = s.replace(new RegExp('^('+host.replace(/[.*+?^${}()|[\\]\\\\]/g,'\\$&')+')\\s*[:\\-–—]?\\s*','i'), '');
+            } catch(_){}
+            s = s.replace(/\s*\|.*$/,'');
+            s = s.replace(/\s*[-–—]\s*(?:eBay|Amazon|Etsy|Mercari|Poshmark|Walmart|Rakuten|Shopify|Bonanza|Target|Facebook).*/i,'');
+            s = s.replace(/\b(?:NEW|USED|Refurbished|In Stock|Out of Stock|Listing|Shop Now)\b.*$/i,'');
+            return s.trim();
+          };
+
+          const items = [];
+          tsv.split(/\r?\n/).forEach(line => {
+            const trimmed = String(line || '').trim();
+            if (!trimmed) return;
+
+            let title='', url='', thumb='';
+            const parts = trimmed.split('\t');
+            if (parts.length >= 2) {
+              title = (parts[0]||'').trim();
+              url   = (parts[1]||'').trim();
+              thumb = (parts[2]||'').trim();
+            } else if (trimmed.includes(' - ')) {
+              const i = trimmed.lastIndexOf(' - ');
+              title = trimmed.slice(0,i).trim();
+              url   = trimmed.slice(i+3).trim();
+            }
+            if (title && /^https?:\/\//i.test(url)) {
+              title = clean(title, url);
+              items.push({ title, url, thumb });
+            }
+          });
+
+          if (!items.length) {
+            $('statusLens').textContent = 'Could not parse pasted results.';
+            return;
+          }
+
+          lensCandidates = items.slice(0,10).map(it => ({
+            name: it.title || '(Untitled)',
+            brand:'', line:'', variant:'', year:'',
+            src: it.url || '',
+            thumb: it.thumb || '',
+            confidence: null,
+            _origin: 'lens'
+          }));
+          renderLensCandidates(lensCandidates);
+          if (window.RES_DEBUG) console.groupEnd();
+          $('statusLens').textContent = 'Lens results pasted from clipboard.';
+          try { showToast('Imported from clipboard', 1400); } catch(_){}
+        } catch(e){
+          $('statusLens').textContent = 'Paste error: ' + (e && e.message ? e.message : String(e||''));
+        }
+      }
+
+
+      function confirmLens(i){
+        const c = lensCandidates[i] || null; if (!c) return;
+        // Reuse your existing field population logic (lightweight)
+        if (c.name && !$('fldName').value) $('fldName').value = c.name;
+
+        // Build a short description seed and push into your existing flow
+        const base = [c.name].filter(Boolean).join(' ');
+        if (base) {
+          const q = base.trim();
+          $('shortDesc').value = q;
+          if (document.getElementById('chkAutoDesc')?.checked) applyAutoLong();
+          $('candBanner').innerHTML = `<div class="banner">âœ… Candidate applied from Lens. Review the search text, then click Search on eBay.</div>`;
+        }
+      }
+
+      /* ===== MRAD-END: Google Lens integration (aggressive + manual fallback) ===== */
+
+
+    function confirmCandidate(i){
+      const c = lastCandidates[i] || null; if(!c) return;
+      selectedCandidate = c;
+      if(c.year && !$('fldYear').value) $('fldYear').value=c.year;
+      if(c.brand && !$('fldBrand').value) $('fldBrand').value=c.brand;
+      if(c.line && !$('fldSeries').value) $('fldSeries').value=c.line;
+      if(c.name && !$('fldName').value) $('fldName').value=c.name;
+
+      const base = [c.brand, c.line, c.name, c.variant, c.year].filter(Boolean).join(' ');
+      const q = (base || `${$('fldBrand').value} ${$('fldSeries').value} ${$('fldName').value} ${$('fldYear').value}`).trim();
+      $('searchQ').value = q;
+      $('shortDesc').value = q;
+      if (document.getElementById('chkAutoDesc')?.checked) applyAutoLong();
+
+      $('candBanner').innerHTML = `<div class="banner">âœ… Candidate selected. Review the search text, then click œSearch on eBay.</div>`;
+      window.scrollTo({ top: document.querySelector('section:nth-of-type(3)').offsetTop - 12, behavior: 'smooth' });
+      if (window.RES_DEBUG) console.log('[UI] candidate chosen â†’ searchQ=', q);
+       
+    }
+
+    function noneMatch(){
+      if(!lastCandidates.length){ alert('No options yet choose a photo then Analyze.'); return; }
+      $('statusA').textContent='Fetching more options';
+      analyze();
+    }
+
+    /* ---------- eBay ---------- */
+    function dedupeWords(str){
+      const seen = new Set();
+      return String(str||'')
+        .split(/\s+/)
+        .filter(w => {
+          const k = w.toLowerCase();
+          if (seen.has(k)) return false;
+          seen.add(k);
+          return true;
+        })
+        .join(' ')
+        .trim();
+    }
+
+    function launchAndFetch(){
+      const raw = $('searchQ').value.trim(); if(!raw){ alert('Enter a search phrase first.'); return; }
+      const query = cleanSearch(raw);
+      
+      /* NEW: keep Section 6 in sync whenever user clicks Search on eBay */
+      $('shortDesc').value = query;
+      if ($('chkAutoDesc')?.checked) applyAutoLong(); // auto long = short + standard blurb
+      setDescModeFromCheckbox(); // ensure fields/button reflect the checkbox state
+
+      const now = Date.now();
+      if (now - lastEbayFetchAt < 3000) return;
+      lastEbayFetchAt = now;
+
+      const btn = $('btnSearchEbay'); btn.disabled = true;
+
+      activeItems=[]; chosen={low:null,mid:null,high:null}; renderActive();
+      // removed: window.open(...) we will not auto-open eBay anymore
+      $('activeWrap').style.display='block';
+      $('activeNote').textContent='Loading (eBay tab will not auto-open)';
+
+      if (window.RES_DEBUG) { console.groupCollapsed('[UI] apiR2_EbayActive'); console.time('active-call'); console.log('query=', query); }
+
+      google.script.run
+        .withSuccessHandler(r=>{
+          btn.disabled = false;
+          if (window.RES_DEBUG) { console.log('result:', r); console.timeEnd('active-call'); console.groupEnd(); }
+          if(!r){ $('activeNote').textContent='No results'; alert('eBay error'); return; }
+          activeItems = (r && r.items) ? r.items : [];
+          const srcTag = r && r.source ? ` Â· ${r.source}` : '';
+          const extra  = r && r.note ? ` — ${r.note}` : '';
+          $('activeNote').textContent = `${activeItems.length} results${srcTag}${extra}`;
+          // If the Apps Script returned total, prefer it (e.g., 10,000+), else fall back to shown items
+          if (typeof r.total === 'number') {
+            $('actCount').value = r.total;
+          } else {
+            $('actCount').value = activeItems.length || '';
+          }
+          renderActive();
+          //maybeFetchSold(); // NEW: auto-load Sold once if not yet loaded
+        })
+        .withFailureHandler(err=>{
+          btn.disabled = false; $('activeNote').textContent='Error';
+          if (window.RES_DEBUG) { console.log('error:', err); console.groupEnd(); }
+          alert(err && err.message ? err.message : String(err));
+        })
+        .apiR2_EbayActive({ raw, cleaned: query, appPresent: true });
+    }
+
+    // helper: show / clear toast
+    let toastTimer = null;
+    function showToast(msg, ms=1300){
+      const el = $('toast'); if(!el) return;
+      el.textContent = msg || '';
+      el.classList.add('show');
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { el.classList.remove('show'); }, ms);
+    }
+    function clearToast(){
+      if (toastTimer) clearTimeout(toastTimer);
+      const el = $('toast'); if (el) el.classList.remove('show');
+    }
+
+    // compute which slot each item currently owns (by URL, which is stable)
+    function buildPickMap(){
+      const m = new Map();
+      if (chosen.low   && chosen.low.url)  m.set(chosen.low.url,  'low');
+      if (chosen.mid   && chosen.mid.url)  m.set(chosen.mid.url,  'mid');
+      if (chosen.high  && chosen.high.url) m.set(chosen.high.url, 'high');
+      return m;
+    }
+
+    // RENDER: adds a badge if the item is currently selected for a slot
+    function renderActive(){
+      const g=$('activeGrid'); g.innerHTML='';
+      const pickMap = buildPickMap();
+
+      activeItems.forEach((x,idx)=>{
+        const slot = pickMap.get(x.url) || ''; // '', 'low', 'mid', 'high'
+        const badge = slot ? `<div class="badge ${slot}">${slot.toUpperCase()}</div>` : '';
+
+        const el=document.createElement('div'); el.className='item';
+        el.setAttribute('data-idx', String(idx));
+        if (slot) el.setAttribute('data-pick', slot); else el.removeAttribute('data-pick');
+
+        el.innerHTML = `
+          ${badge}
+          <img src="${x.image||''}" alt="">
+          <div class="ttl">${x.title||''}</div>
+          <div class="meta">
+            <div>${money(x.total)}</div>
+            <a href="${x.url}" target="_blank" rel="noopener">Open</a>
+          </div>
+          <div class="meta">
+            <button class="btn small" onclick="markPick('low',${idx})">Pick Lowest</button>
+            <button class="btn small" onclick="markPick('mid',${idx})">Pick Mid</button>
+            <button class="btn small" onclick="markPick('high',${idx})">Pick Highest</button>
+          </div>`;
+        g.appendChild(el);
+      });
+      // $('actCount').value = activeItems.length || ''; 
+      if (window.RES_DEBUG) console.log('[UI] renderActive items=', activeItems.length);
+    }
+
+    function showToast(msg){
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      // ensure visible even if previously hidden
+      el.style.opacity = '1';
+      // auto-hide after ~1.6s
+      clearTimeout(showToast._t);
+      showToast._t = setTimeout(()=>{ el.classList.remove('show'); }, 1600);
+    }
+
+    function updateBadges(){
+      // clear all badges/classes
+      document.querySelectorAll('#activeGrid .item').forEach(card=>{
+        card.classList.remove('showBadge');
+        const b = card.querySelector('.pickBadge'); if (b) b.textContent = '';
+      });
+
+      // set per-slot badge if present
+      const setBadge = (slot, label) => {
+        const idx = pickedIdx[slot];
+        if (idx==null) return;
+        const card = document.querySelector(`#activeGrid .item[data-idx="${idx}"]`);
+        if (!card) return;
+        const b = card.querySelector('.pickBadge');
+        if (b) { b.textContent = label; card.classList.add('showBadge'); }
+      };
+      setBadge('low',  'LOW');
+      setBadge('mid',  'MID');
+      setBadge('high', 'HIGH');
+    }
+
+    function flashSlot(slot){
+      const id = slot==='low' ? 'slotLow' : slot==='mid' ? 'slotMid' : 'slotHigh';
+      const box = document.getElementById(id)?.parentElement; // the .slot container
+      if (!box) return;
+      box.classList.remove('flash'); // restart animation
+      // force reflow
+      void box.offsetWidth;
+      box.classList.add('flash');
+    }
+
+    // PICK: ensures an item can only be in one slot at a time,
+    // and each slot holds at most one item. Badges then re-derive from `chosen`.
+    function markPick(slot, idx){
+      const it = activeItems[idx]; if(!it) return;
+
+      // if this item is already used by any other slot, clear that slot
+      for (const s of ['low','mid','high']){
+        if (chosen[s] && chosen[s].url === it.url) chosen[s] = null;
+      }
+      // set the requested slot to this item
+      chosen[slot] = it;
+
+      // update the slot labels
+      $('slotLow').textContent  = chosen.low  ? `${money(chosen.low.total)} — ${chosen.low.title.slice(0,40)}…`  : '—';
+      $('slotMid').textContent  = chosen.mid  ? `${money(chosen.mid.total)} — ${chosen.mid.title.slice(0,40)}…`  : '—';
+      $('slotHigh').textContent = chosen.high ? `${money(chosen.high.total)} — ${chosen.high.title.slice(0,40)}…` : '—';
+
+
+      // re-render to refresh badges
+      renderActive();
+
+      // friendly toast
+      // const tag = slot.toUpperCase();
+      // showToast(`Saved: Picked ${tag} • ${money(it.total)}`);
+
+    }
+
+
+    // RESET: clears chosen, slot labels, toast, Active totals, and re-renders (removing badges)
+    function resetActivePicks(){
+       chosen = { low: null, mid: null, high: null };
+      $('slotLow').textContent  = '—';
+      $('slotMid').textContent  = '—';
+      $('slotHigh').textContent = '—';
+      $('activeConfirmNote').textContent = '';
+
+
+      // NEW: clear the Active Low/Mid/High total fields
+      ['actLow','actMid','actHigh'].forEach(id => {
+        const el = $(id);
+        if (el) {
+          el.value = '';
+          // if anything listens to input changes, fire one
+          el.dispatchEvent?.(new Event('input', { bubbles:true }));
+        }
+      });
+
+      clearToast();
+      renderActive();
+    }
+
+    function clearPickUIArtifacts(){
+      // Remove any pick badges we overlaid on cards
+      document.querySelectorAll('.pickBadge,.pickTag,.picked-flag,[data-pick-badge]').forEach(el => el.remove());
+
+      // Remove any “Saved: Picked …” snackbars/toasts
+
+      document.querySelectorAll('#pickToast,.pickToast,.snackbar,[data-pick-toast]').forEach(el => el.remove());
+    }
+
+    function confirmActive(){
+      if(chosen.low)  $('actLow').value  = chosen.low.total;
+      if(chosen.mid)  $('actMid').value  = chosen.mid.total;
+      if(chosen.high) $('actHigh').value = chosen.high.total;
+      maybeAutoCompute();
+      $('activeConfirmNote').textContent = 'Active comps filled from your picks.';
+    }
+
+
+    // TEMP: open eBay SOLD search in a new tab instead of calling the API
+    function fetchSold(){
+      const raw = $('searchQ').value.trim();
+      if (!raw) { alert('Enter a search phrase first.'); return; }
+
+      const query = cleanSearch(raw);
+      // eBay params:
+      //  _nkw        â†’ search text
+      //  LH_Sold=1   â†’ SOLD filter
+      //  LH_Complete=1 â†’ Completed listings
+      //  _ipg=60     â†’ 60 results per page (optional)
+      const url = `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(query)}&LH_Sold=1&LH_Complete=1&_ipg=60`;
+
+      // Clear local SOLD UI so it doesn't look stale, and note what happened
+      const note = document.getElementById('soldNote');
+      const grid = document.getElementById('soldGrid');
+      if (note) note.textContent = 'Opening eBay SOLD results in a new tab…';
+      if (grid) grid.innerHTML = '';
+
+      // Open in a new tab/window so the app isn't replaced (tablet-safe)
+      window.open(url, '_blank', 'noopener');
+
+      // Optional: after a moment, update the note so users aren't waiting
+      setTimeout(()=>{ if (note) note.textContent = 'SOLD results opened on eBay.'; }, 400);
+    }
+
+
+
+    function renderSold(items){
+      const g=$('soldGrid'); g.innerHTML='';
+      (items||[]).forEach(x=>{
+        const el=document.createElement('div'); el.className='item';
+        const state = x.sold ? '<span class="p-ok">SOLD</span>' : '<span class="p-warn">Ended</span>';
+        el.innerHTML = `
+          <img src="${x.image||''}" alt="">
+          <div class="ttl">${x.title||''}</div>
+          <div class="meta"><div>${money(x.total)}</div><div>${state}</div></div>
+          <div class="meta"><a href="${x.url}" target="_blank">Open</a></div>`;
+        g.appendChild(el);
+      });
+      if (window.RES_DEBUG) console.log('[UI] renderSold items=', (items||[]).length);
+    }
+
+    function maybeAutoCompute(){
+      const hasAct = !!($('actCount').value && $('actMid').value);
+      const hasSold= !!($('soldCount').value && $('soldMid').value);
+      if (hasAct && hasSold) computePricing();
+    }
+
+    function num(id){ const v=Number($(id).value); return Number.isFinite(v)?v:null; }
+    function computePricing(){
+      const payload={ activeCount:num('actCount'),activeLow:num('actLow'),activeMid:num('actMid'),activeHigh:num('actHigh'),
+                      soldCount:num('soldCount'),soldLow:num('soldLow'),soldMid:num('soldMid'),soldHigh:num('soldHigh') };
+      $('compStatus').textContent='Computing…';
+      if (window.RES_DEBUG) console.groupCollapsed('[UI] computePricing'); 
+      if (window.RES_DEBUG) console.log('payload:', payload);
+
+      google.script.run.withSuccessHandler(r=>{
+        if (window.RES_DEBUG) { console.log('result:', r); console.groupEnd(); }
+        if(!r||!r.ok){ $('compStatus').textContent=''; alert(r&&r.error?r.error:'Compute failed'); return; }
+        $('sellThrough').value = (r.sellThroughPct!=null? r.sellThroughPct+'%':'');
+        $('recPrice').value    = (r.recommended!=null? r.recommended:'');
+        $('compStatus').innerHTML = `Band: <span class="${r.bandColor==='ok'?'p-ok':(r.bandColor==='warn'?'p-warn':'p-bad')}">${r.band}</span>`;
+      }).withFailureHandler(err=>{
+        if (window.RES_DEBUG) { console.log('error:', err); console.groupEnd(); }
+        $('compStatus').textContent='Error'; alert(err && err.message ? err.message : String(err));
+      }).apiR2_ComputePricing(payload);
+    }
+
+    function compose(){
+      const meta = Object.assign({}, gatherMeta(), {
+        itemCondition:$('condItem').value.trim(),
+        packaging:$('condPkg').value.trim(),
+        packagingCondition:$('condPkgState').value.trim(),
+        cosmetic:$('condCos').value.trim(),
+        functionality:$('condFunc').value.trim(),
+        completeness:$('condComp').value.trim(),
+        notes:$('condNotes').value.trim()
+      });
+      $('composeNote').textContent='Composing…';
+      const runner = google.script.run.withSuccessHandler(r=>{
+        $('composeNote').textContent='Composed';
+        if(r && r.ok){ if(r.short) $('shortDesc').value = r.short; if(r.long) $('longDesc').value = r.long; }
+      }).withFailureHandler(err=>{ $('composeNote').textContent='Error'; alert(err && err.message ? err.message : String(err)); });
+
+      const imgB64 = (window.ResellProCrop?.getImageB64ForAnalysis)
+        ? ResellProCrop.getImageB64ForAnalysis(lastImageB64)
+        : (lastImageB64 || '');
+
+      if (imgB64) runner.geminiComposeImageAndFields(imgB64, 'image/jpeg', meta);
+      else        runner.geminiCompose(meta);
+    }
+
+    function sendToIntake(){
+      const d = {
+        shortDesc: $('shortDesc').value || '',
+        longDesc:  $('longDesc').value  || '',
+        activeCount: Number($('actCount').value) || null,
+        activeLow:   Number($('actLow').value)   || null,
+        activeMid:   Number($('actMid').value)   || null,
+        activeHigh:  Number($('actHigh').value)  || null,
+        soldCount:   Number($('soldCount').value)|| null,
+        soldLow:     Number($('soldLow').value)  || null,
+        soldMid:     Number($('soldMid').value)  || null,
+        soldHigh:    Number($('soldHigh').value) || null,
+        sellThrough: $('sellThrough').value || '',
+        recPrice:    ( ($('recPrice').value || '').replace('$','') ),
+        altPrice:    Number($('altPrice').value) || null,
+        imageB64:    lastImageB64 || null
+      };
+      const msg = $('saveMsg'); 
+      msg.textContent = 'Saving…';
+
+      google.script.run
+        .withSuccessHandler(res => {
+          msg.textContent = (res && res.ok) ? 'Saved to Intake Draft' : '';
+          if (res && res.ok) {
+            // set one-time autoload marker (no query params needed)
+            try { sessionStorage.setItem('mrad_autoload_draft', '1'); } catch(_) {}
+
+            const base = (window.MADRAD_EXEC_URL || '').replace(/\/+$/,'');
+            // your redirect that you confirmed works
+            (window.top || window).location.replace(base + '?page=intake');
+          }
+        })
+        .withFailureHandler(err => { 
+          msg.textContent = 'Error'; 
+          alert(err && err.message ? err.message : String(err)); 
+        })
+        .saveIntakeDraft(d);
+    }
+
+    // Keep short title in sync with the eBay search box
+    function syncShortFromSearch(){
+      const q = (document.getElementById('searchQ')?.value || '').trim();
+      const s = document.getElementById('shortDesc');
+      if (s) s.value = q;
+      // If using the standard description, refresh long text too
+      if (document.getElementById('chkAutoDesc')?.checked) applyAutoLong();
+    }
+
+    // Build the standard long description from short title
+    function applyAutoLong(){
+      const title = (document.getElementById('shortDesc')?.value || '').trim();
+      const msg = 'The photos are part of the description. Be sure to look them over for condition and details. This is sold as is and it\'s ready for a new home.';
+      const out = title ? (title + '\n\n' + msg) : msg;
+      const el = document.getElementById('longDesc');
+      if (el) el.value = out;
+    }
+
+    // Build a custom long description from the field selections
+    function buildCustomLongFromFields(){
+      const parts = [];
+      const title = (document.getElementById('shortDesc')?.value || '').trim();
+      if (title) parts.push(title + '.');
+
+      const cond   = document.getElementById('selItemCond')?.value || '';
+      const pack   = document.getElementById('selPackaging')?.value || '';
+      const packG  = document.getElementById('selPackGrade')?.value || '';
+      const itemG  = document.getElementById('selItemGrade')?.value || '';
+      const func   = document.getElementById('selFunction')?.value || '';
+      const comp   = document.getElementById('selComplete')?.value || '';
+
+      if (cond)  parts.push('Condition: ' + cond + '.');
+      if (pack)  parts.push('Packaging: ' + pack + '.');
+      if (packG) parts.push('Packaging condition: ' + packG + '.');
+      if (itemG) parts.push('Cosmetic grade: ' + itemG + '.');
+      if (func)  parts.push('Functionality: ' + func + '.');
+      if (comp)  parts.push('Completeness: ' + comp + '.');
+
+      parts.push('The photos are part of the description. Please review all images.');
+      return parts.join(' ');
+    }
+
+    // Enable/disable detail fields based on the checkbox
+    function setDescModeFromCheckbox(){
+      const on = $('chkAutoDesc')?.checked;
+      const ids = ['selItemCond','selPackaging','selPackGrade','selItemGrade','selFunction','selComplete'];
+      ids.forEach(id => { const el = $(id); if (el) el.disabled = !!on; });
+
+      // NEW: disable/enable the Compose button visually and functionally
+      const composeBtn = $('btnCompose');
+      if (composeBtn) composeBtn.disabled = !!on;
+
+      if (on) {
+        applyAutoLong();
+      } else {
+        const el = $('longDesc');
+        if (el) el.value = buildCustomLongFromFields();
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      setDescModeFromCheckbox();  // set initial disabled/enabled states
+    });
+  </script>
+
+  <script src="https://unpkg.com/cropperjs@1.6.2/dist/cropper.min.js"></script>
+
+  <!-- crop helper -->
+  <script>
+  (function(){
+    const start  = document.getElementById('btnStartCrop');
+    const apply  = document.getElementById('btnApplyCrop');
+    const cancel = document.getElementById('btnCancelCrop');
+
+    let cropper = null;
+    let originalDataURL = '';
+    let activeDataURL   = '';
+
+    function previewImg(){ return document.querySelector('#imgPreview img'); }
+    function enable(el, on){ if (el) el.disabled = !on; }
+    function destroyCropper(){
+      if (cropper) { try { cropper.destroy(); } catch(e){} cropper=null; }
+      enable(apply,false); enable(cancel,false); enable(start,true);
+    }
+    function onImageChanged(dataUrl){ if (!dataUrl) return; originalDataURL = dataUrl; activeDataURL = dataUrl; destroyCropper(); }
+    function getImageB64ForAnalysis(fallbackB64){
+      const src = activeDataURL || originalDataURL || '';
+      if (src) return src.replace(/^data:image\/\w+;base64,/, '');
+      return fallbackB64 || '';
+    }
+
+    if (start) start.addEventListener('click', function(){
+      if (!window.Cropper) { alert('Cropper library did not load. Check network/AdBlock.'); return; }
+      const img = previewImg(); if (!img || !img.src) { alert('Select a photo first.'); return; }
+      if (!originalDataURL) { originalDataURL = img.src; activeDataURL = img.src; }
+      if (cropper) return;
+      cropper = new Cropper(img, { viewMode:1, dragMode:'crop', autoCrop:false, background:false, center:true, movable:true, zoomOnWheel:true, responsive:true, guides:true, highlight:true });
+      enable(apply,true); enable(cancel,true); enable(start,false);
+    });
+    if (cancel) cancel.addEventListener('click', function(){ destroyCropper(); const img=previewImg(); if (img && activeDataURL) img.src=activeDataURL; });
+    if (apply)  apply.addEventListener('click', function(){
+      if (!cropper) return;
+      const canvas = cropper.getCroppedCanvas({ maxWidth: 2500, maxHeight: 2500 });
+      if (!canvas) { alert('Draw a crop box first.'); return; }
+      activeDataURL = canvas.toDataURL('image/jpeg', 0.92);
+      const img = previewImg(); if (img) img.src = activeDataURL;
+      destroyCropper();
+    });
+
+    window.ResellProCrop = { onImageChanged, getImageB64ForAnalysis };
+  })();
+  </script>
+
+  <script>
+    window.addEventListener('error', e => { try { console.error(e.error || e.message); } catch(e){} });
+  </script>
+
+  <div id="toast" class="toast" aria-live="polite"></div>
+  <div id="toast" aria-live="polite"></div>  
+
+    <!--begin price to buy block (PHASE B: toggle + Offer panel + Buy Ticket) -->
+    <style>
+      /* --- Sell/Buy toggle + Offer panel styles (LIGHT) --- */
+      .modeToggle{
+        display:inline-flex; gap:0; border:1px solid #d1d5db; border-radius:999px; overflow:hidden;
+        background:#fff;
+      }
+      .modeToggle button{
+        padding:6px 10px; font-size:12px; border:0; cursor:pointer; color:#111; background:transparent;
+      }
+      .modeToggle button.active{ background:linear-gradient(90deg,#2e73ff,#6d49ff); color:#fff; }
+
+      .offerPanel{
+        margin-top:10px; border:1px solid #eee; border-radius:12px; padding:10px; background:#fff; color:#111;
+      }
+      .offerChips{ display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+
+      /* default chip look */
+      .offerChip{
+        border:1px solid #93c5fd; border-radius:999px; padding:6px 10px; font-size:12px; cursor:pointer;
+        background:#fff; color:#111;
+      }
+      .offerChip.reco{ outline:2px solid #60a5fa; outline-offset:2px; }
+      /* selected state (matches your earlier highlight fix) */
+      .offerChip.sel,
+      .offerChip.selected{
+        background:linear-gradient(180deg,#dbeafe,#bfdbfe);
+        border-color:#93c5fd; color:#111;
+      }
+
+      .offerGrid{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:10px; }
+      .offerGrid .pillish{
+        background:#fff; border:1px solid #ddd; border-radius:8px; padding:8px; color:#111;
+      }
+      .offerMiniNote{ color:#6b7280; font-size:12px; margin-top:6px; }
+
+      /* --- Buy Ticket FAB + Drawer --- */
+      #btFab {
+        position:fixed; right:14px; bottom:70px; z-index:51; cursor:pointer;
+        background:linear-gradient(90deg,#2e73ff,#6d49ff); color:#fff; border:none;
+        border-radius:999px; padding:10px 14px; font-size:13px; box-shadow:0 8px 24px rgba(0,0,0,.38);
+        display:none;
+      }
+      #btDrawerBack {
+        position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:60; display:none;
+      }
+      #btDrawer {
+        position:fixed; top:0; right:0; height:100%; width:min(880px,92vw); z-index:61;
+        background:#0f1128; color:#eaf1ff; border-left:1px solid #2a2f6b; transform:translateX(100%);
+        transition:transform .22s ease; display:flex; flex-direction:column;
+      }
+      #btDrawer.show { transform:translateX(0); }
+      .btHead { padding:12px; border-bottom:1px solid #2a2f6b; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+      .btHead .muted { color:#9aa3c7; font-size:12px }
+      /* NEW  give Offer column a fixed track */
+      .btRow {
+        display: grid;
+        grid-template-columns: 64px 1.6fr 150px auto; /* image | title/meta | OFFER | buttons */
+        gap: 8px;
+        align-items: center;
+        padding: 8px 12px;
+        border-bottom: 1px solid #1f2140;
+      }
+
+      /* Make the Offer input fit its column */
+      .btRow input.mini {
+        width: 100%;
+        box-sizing: border-box;
+      }
+
+      /* Keep the buttons tidy and non-overlapping */
+      .btRow .btns {
+        display: flex;
+        gap: 8px;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+      }
+      .btRow img { width:64px; height:64px; object-fit:cover; border-radius:8px; background:#0e1133 }
+      .btRow .ttl { font-size:12px; color:#cfe0ff }
+      .btRow .muted { color:#9aa3c7; font-size:11px }
+
+      /* Ticket chip contrast fixes */
+      .btRow .chip {
+        border:1px solid #4ea1ff; border-radius:999px; padding:4px 8px; font-size:11px; cursor:pointer;
+        background:#0f1128; color:#eaf1ff;
+      }
+      .btRow .chip.reco { border-color:#1e8f64; box-shadow:0 0 0 1px #1e8f64 inset; }
+      .btRow .chip.sel  { background:linear-gradient(90deg,#2e73ff,#6d49ff); border-color:transparent; color:#fff; }
+
+      .btRow .mini { font-size:12px; padding:6px 8px; background:#0f1128; border:1px solid #222457; border-radius:8px; width:100% }
+      .btRow .btns { display:flex; gap:6px; flex-wrap:wrap }
+      .btRow .btnSm { background:#1a2047; border:1px solid #2a2f6b; color:#eaf1ff; border-radius:8px; padding:6px 8px; font-size:12px; cursor:pointer }
+      .btRow .btnSm.warn { background:#5b1a1a; border-color:#8c3232 }
+      .btFoot { padding:10px 12px; border-top:1px solid #2a2f6b; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+      .btBtn { background:#1a2047; border:1px solid #2a2f6b; color:#eaf1ff; border-radius:10px; padding:8px 12px; cursor:pointer; }
+      .btBtn.primary { background:linear-gradient(90deg,#2e73ff,#6d49ff); border:none; }
+      .btForm { display:flex; gap:6px; flex-wrap:wrap; align-items:center }
+      .btForm input { background:#0f1128; border:1px solid #222457; color:#eaf1ff; border-radius:8px; padding:8px; }
+      .btEmpty { padding:16px; color:#9aa3c7 }
+      .offerChip.selected { box-shadow: 0 0 0 1px #6d49ff inset; }
+    </style>
+
+    <button id="btFab" type="button">Buy Ticket (0)</button>
+    <div id="btDrawerBack"></div>
+    <aside id="btDrawer" aria-label="Buy Ticket drawer" aria-hidden="true">
+      <div class="btHead">
+        <strong id="btTitle">Buy Ticket</strong>
+        <span class="muted" id="btId"></span>
+        <div class="btForm" style="margin-left:auto">
+          <input id="btSeller" placeholder="Seller name/handle" />
+          <input id="btMeet" placeholder="Meet place / when" />
+          <button class="btBtn" id="btSaveHdr" type="button">Save</button>
+          <button class="btBtn" id="btClose" type="button">Close</button>
+        </div>
+      </div>
+      <div id="btRows" style="flex:1; overflow:auto">
+        <div class="btEmpty">No items yet. In <em>Buy</em> mode, use “Add to Buy Ticket”.</div>
+
+      </div>
+      <div class="btFoot">
+        <button class="btBtn" id="btPrintSeller" type="button">Print Seller Ticket</button>
+        <button class="btBtn" id="btPrintEmp" type="button">Print Employee Ticket</button>
+        <button class="btBtn" id="btCopyOfferTxt" type="button">Copy Offer Text</button>
+        <button class="btBtn" id="btExport" type="button">Export CSV</button>
+        <button class="btBtn" id="btNew" type="button">New Ticket</button>
+        <span class="muted" id="btHint"></span>
+      </div>
+    </aside>
+
+    <script>
+    (function(){
+      const $ = id => document.getElementById(id);
+
+      /* ---------- helpers ---------- */
+      function parseMoney(str){ const n = parseFloat(String(str||'').replace(/[^0-9.]+/g,'')); return isFinite(n)?n:NaN; }
+      function money(n){ return (n==null||!isFinite(n)) ? '—' : ('$'+Number(n).toFixed(2)); }
+
+      function showSmallToast(msg){ const el = $('toast'); if(!el) return; el.textContent = msg||''; el.classList.add('show'); setTimeout(()=>el.classList.remove('show'),1200); }
+      function uid(){ return 'it_' + Math.random().toString(36).slice(2,8); }
+      function todayTicketId(){ const d=new Date(),p=n=>String(n).padStart(2,'0'); return `BUY-${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}-${Math.floor(Math.random()*9000+1000)}`; }
+
+      /* ---------- tier mapping ---------- */
+      function recommendedPercentForTier(tier){
+        switch(tier){
+          case 'excellent': return 50;
+          case 'great':     return 30;
+          case 'good':      return 20;
+          case 'fair':      return 15;
+          case 'poor':      return 10;
+          default:          return 10;
+        }
+      }
+      function tierFromUI(){
+        const compTxt = (document.getElementById('compStatus')?.textContent || '').toLowerCase();
+        if (/excellent/.test(compTxt)) return 'excellent';
+        if (/great/.test(compTxt))     return 'great';
+        if (/good/.test(compTxt))      return 'good';
+        if (/fair/.test(compTxt))      return 'fair';
+        if (/poor|low/.test(compTxt))  return 'poor';
+        const pct = parseFloat((document.getElementById('sellThrough')?.value || '').replace('%','')) || 0;
+        if (pct >= 80) return 'excellent';
+        if (pct >= 65) return 'great';
+        if (pct >= 50) return 'good';
+        if (pct >= 35) return 'fair';
+        return 'poor';
+      }
+
+      /* ---------- Offer panel ---------- */
+      let PRICE_MODE = 'sell';                 // make this global so other functions can read it
+      const OFFER_PCTS = [10,15,20,30,50];
+      let SELECTED_OFFER_PCT = null;
+
+      function injectOfferUI(){
+        const rec = $('recPrice'), st = $('sellThrough');
+        if (!rec || !st) return;
+        const section5 = rec.closest('section');
+        if (!section5 || section5.querySelector('#rp2_offerPanel')) return;
+
+        // Toggle row
+        const h2 = section5.querySelector('h2');
+        const toggleRow = document.createElement('div');
+        toggleRow.className = 'row'; toggleRow.style.marginTop='4px';
+        toggleRow.innerHTML = `
+          <div class="muted">Mode:</div>
+          <div class="modeToggle" role="tablist" aria-label="Pricing mode">
+            <button type="button" id="btnModeSell" class="active" role="tab" aria-selected="true">Sell</button>
+            <button type="button" id="btnModeBuy" role="tab" aria-selected="false">Buy</button>
+          </div>
+          <div class="muted" id="modeHint">Sell mode keeps your current workflow. Switch to Buy to see offer ideas.</div>`;
+        h2?.after(toggleRow);
+
+        // Offer panel (NO Add-to-Ticket button here)
+        const panel = document.createElement('div');
+        panel.id='rp2_offerPanel'; panel.className='offerPanel'; panel.style.display='none';
+        panel.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+            <strong>Offer ideas (buy mode)</strong>
+            <span class="muted" id="rp2_offerInlineNote"></span>
+          </div>
+
+          <div class="offerMiniNote" id="rp2_offerNote"></div>
+
+          <!-- Buy metrics row -->
+          <div class="offerGrid">
+            <div>
+              <label>Base Buy Price</label>
+              <input id="rp2_buyBase" class="pillish" readonly value="—">
+
+            </div>
+            <div>
+              <label>Recommended Buy Price</label>
+              <input id="rp2_buyRec" class="pillish" readonly value="—">
+            </div>
+            <div>
+              <label>Alternate Buy Price (override)</label>
+              <input id="rp2_buyAlt" class="pillish" type="number" step="0.01" placeholder="override $" />
+            </div>
+          </div>
+
+          <!-- Offer options -->
+          <div class="offerChips" id="rp2_offerChips"></div>
+        `;
+        section5.appendChild(panel);
+
+        // Toggle handlers
+        $('btnModeSell').addEventListener('click', ()=>setMode('sell'));
+        $('btnModeBuy').addEventListener('click', ()=>setMode('buy'));
+
+        // Create the *single* Add-to-Buy button and place it at the bottom slot
+        (function ensureBottomAddButton(){
+          const slot = $('buyActionSlot');
+          if (!slot) return;
+          // If you already have rp2_addToTicket in DOM (from an older run), re-use it; else create it.
+          let addBtn = $('rp2_addToTicket');
+          if (!addBtn) {
+            addBtn = document.createElement('button');
+            addBtn.id = 'rp2_addToTicket';
+            addBtn.type = 'button';
+            addBtn.className = 'btn primary';
+            addBtn.textContent = 'Add to Buy Ticket';
+            addBtn.addEventListener('click', ()=> BuyTicket.addCurrent());
+          } else {
+            // if it existed somewhere else, detach old handlers and rewire
+            addBtn.replaceWith(addBtn.cloneNode(true));
+            addBtn = $('rp2_addToTicket');
+            addBtn.classList.remove('small');
+            addBtn.classList.add('primary');
+            addBtn.addEventListener('click', ()=> BuyTicket.addCurrent());
+          }
+          slot.appendChild(addBtn);
+        })();
+
+        // Panel interactions
+        $('rp2_buyAlt').addEventListener('input', ()=>{ SELECTED_OFFER_PCT = null; highlightChips(); });
+
+        // Default mode: Buy when opened from a ticket, else Sell
+        const defaultMode = fromTicketCtx() ? 'buy' : 'sell';
+        setMode(defaultMode);
+
+        // Watch inputs to keep panel fresh
+        const tryObserve = (el)=>{ try{ new MutationObserver(renderOfferPanel).observe(el, {attributes:true,childList:true,subtree:true,characterData:true}); }catch(_){} };
+        tryObserve(st); tryObserve(rec); tryObserve($('soldLow')); tryObserve($('soldMid')); tryObserve($('soldHigh'));
+        st.addEventListener('input', renderOfferPanel);
+        rec.addEventListener('input', renderOfferPanel);
+        $('soldLow')?.addEventListener('input', renderOfferPanel);
+        $('soldMid')?.addEventListener('input', renderOfferPanel);
+        $('soldHigh')?.addEventListener('input', renderOfferPanel);
+
+        renderOfferPanel();
+      }
+
+      function setMode(mode){
+        PRICE_MODE = (mode==='buy') ? 'buy' : 'sell';
+
+        const sellBtn=$('btnModeSell'), buyBtn=$('btnModeBuy');
+        sellBtn.classList.toggle('active', PRICE_MODE==='sell'); sellBtn.setAttribute('aria-selected', PRICE_MODE==='sell');
+        buyBtn.classList.toggle('active',  PRICE_MODE==='buy');  buyBtn.setAttribute('aria-selected',  PRICE_MODE==='buy');
+
+        const panel=$('rp2_offerPanel'), hint=$('modeHint');
+        if (panel) panel.style.display = (PRICE_MODE==='buy') ? 'block' : 'none';
+        if (hint)  hint.textContent = (PRICE_MODE==='buy')
+          ? 'Buy mode uses sold averages to suggest offer amounts.'
+          : 'Sell mode keeps your current workflow. Switch to Buy to see offer ideas.';
+
+        renderOfferPanel();
+        updateActionVisibility();   // <<< keep bottom actions in sync with the mode/context
+      }
+
+      function updateActionVisibility(){
+        const addBtn   = document.getElementById('rp2_addToTicket');  // bottom "Add to Buy Ticket"
+        const sendBtn  = document.getElementById('btnSendToIntake');  // bottom "Send to Intake"
+        const hasTicket = fromTicketCtx();
+        const isBuy     = (typeof PRICE_MODE !== 'undefined' ? PRICE_MODE : 'sell') === 'buy';
+
+        // Exactly one visible at a time
+        if (isBuy){
+          if (addBtn){ addBtn.style.display = 'inline-flex'; addBtn.disabled = !hasTicket; addBtn.title = hasTicket ? '' : 'Open from a Buy Ticket to enable'; }
+          if (sendBtn){ sendBtn.style.display = 'none'; }
+        } else {
+          if (addBtn){ addBtn.style.display = 'none'; }
+          if (sendBtn){ sendBtn.style.display = 'inline-flex'; sendBtn.disabled = false; sendBtn.title = ''; }
+        }
+      }
+
+      function num(id){ const v=Number($(id).value); return Number.isFinite(v)?v:null; }
+
+      function renderOfferPanel(){
+        const panel = $('rp2_offerPanel'); if (!panel) return;
+
+        const stPctStr = $('sellThrough')?.value || $('sellThrough')?.textContent || '';
+        const noteEl = $('rp2_offerNote'), chipsEl=$('rp2_offerChips');
+        const outBase = $('rp2_buyBase'), outRec = $('rp2_buyRec'), outAlt = $('rp2_buyAlt');
+
+        chipsEl.innerHTML = '';
+        if (outBase) outBase.value = '—';
+        if (outRec)  outRec.value  = '—';
+
+
+        // Only render when Buy mode is active
+        if (PRICE_MODE !== 'buy') return;
+
+        // Tier (for recommended % and excellent fallback handling)
+        const tier = tierFromUI();
+        const recoPct = recommendedPercentForTier(tier);
+
+        // Try SOLD-only average first
+        const sL = parseMoney($('soldLow')?.value || $('soldLow')?.textContent || '');
+        const sM = parseMoney($('soldMid')?.value || $('soldMid')?.textContent || '');
+        const sH = parseMoney($('soldHigh')?.value || $('soldHigh')?.textContent || '');
+        const soldNums = [sL, sM, sH].filter(v => Number.isFinite(v) && v > 0);
+
+        // If SOLD numbers are missing, fall back to the current recommended sell price.
+        // In case "excellent" band added a +10% bump to rec sell, undo it by Ã·1.10 for the base.
+        const recSell = parseMoney($('recPrice')?.value || '');
+        let baseForOffers = NaN;
+        if (soldNums.length) {
+          baseForOffers = +(soldNums.reduce((a,b)=>a+b,0) / soldNums.length).toFixed(2);
+        } else if (Number.isFinite(recSell) && recSell > 0) {
+          baseForOffers = (tier === 'excellent')
+            ? +((recSell / 1.10)).toFixed(2)   // remove any +10% bump if present
+            : recSell;
+        }
+
+        if (!(Number.isFinite(baseForOffers) && baseForOffers > 0)){
+          noteEl.textContent = 'Enter Sold Low/Mid/High (or Compute to get a fallback) to see offer ideas.';
+          return;
+        }
+
+        const recAmt = +(baseForOffers * (recoPct/100)).toFixed(2);
+
+        // Fill base & recommended buy price fields
+        if (outBase) outBase.value = baseForOffers.toFixed(2);
+        if (outRec)  outRec.value  = recAmt.toFixed(2);
+        // Do NOT auto-fill Alternate Buy; user picks via chips or types
+
+        // Render chips for 10/15/20/30/50% of base
+        OFFER_PCTS.forEach(p=>{
+          const val = (baseForOffers * (p/100));
+          const chip = document.createElement('button');
+          chip.type='button';
+          chip.className='offerChip' + (p===recoPct?' reco':'') + (p===SELECTED_OFFER_PCT?' sel':'');
+          chip.textContent = `${p}%  •  $${val.toFixed(2)}`;
+          chip.addEventListener('click', ()=>{
+            if (outAlt) outAlt.value = val.toFixed(2);
+            SELECTED_OFFER_PCT = p;
+            highlightChips();
+          });
+          chipsEl.appendChild(chip);
+        });
+
+        // Show customer "would like to get" cap (if present)
+        let capNote = '';
+        try {
+          const capRaw = localStorage.getItem('mrad_estCap') || '';
+          const capNum = capRaw ? Number(String(capRaw).replace(/[^\d.]/g,'')) : null;
+          if (Number.isFinite(capNum) && capNum > 0) {
+            capNote = ` Â· Customer asked: <strong>${money(capNum)}</strong> (max)`;
+          }
+        } catch (_) {}
+
+        const pctTxt = (stPctStr||'').trim();
+        noteEl.innerHTML = `Base for offers: <strong>${money(baseForOffers)}</strong> Â· Sell-through: <strong>${pctTxt||tier}</strong> Â· Recommended: <strong>${recoPct}%</strong>${capNote}`;
+      }
+
+
+      function highlightChips(){
+        const chips = document.querySelectorAll('#rp2_offerChips .offerChip');
+        chips.forEach(btn=>{
+          const p = parseFloat(btn.textContent);
+          btn.classList.toggle('sel', SELECTED_OFFER_PCT===p);
+        });
+      }
+
+      /* ---------- page boot (resolve outer URL first) ---------- */
+      document.addEventListener('DOMContentLoaded', () => {
+        console.debug('[research2] boot: resolving container URL');
+
+        // If we're not inside Apps Script (rare), best-effort fallback.
+        if (!(google && google.script && google.script.url && google.script.url.getLocation)) {
+          // Extract the id once from the full URL (outer container not available here)
+          const m = String(location.href || '').match(/[?&](ticket|bt|buy)=([^&]+)/i);
+          window.RESEARCH_TICKET_ID = m ? decodeURIComponent(m[2]) : '';
+          NAV_FROM_TICKET = !!window.RESEARCH_TICKET_ID;
+          finalizeBoot();
+          return;
+        }
+
+        // Normal case: ask the Apps Script container for the OUTER URL.
+        google.script.url.getLocation((loc) => {
+          try {
+            // loc.parameter.{name} holds first value
+            // loc.parameters.{name} is string[] of all values
+            const p1 = loc && loc.parameter && (loc.parameter.ticket || loc.parameter.bt || loc.parameter.buy);
+            const p2 = loc && loc.parameters && (
+              (loc.parameters.ticket && loc.parameters.ticket[0]) ||
+              (loc.parameters.bt     && loc.parameters.bt[0])     ||
+              (loc.parameters.buy    && loc.parameters.buy[0])
+            );
+            // Cache the actual id once; use it to derive the boolean
+            const id = (p1 || p2 || '').toString().trim();
+            window.RESEARCH_TICKET_ID = id;
+            NAV_FROM_TICKET = !!id;
+          } catch (e) {
+            // Fallback if anything is odd
+            NAV_FROM_TICKET = /[?&](ticket|bt|buy)=/i.test(String(location.href || ''));
+          }
+          finalizeBoot();
+        });
+      });
+
+      function finalizeBoot(){
+        console.debug('[research2] context resolved', { NAV_FROM_TICKET });
+
+        // 1) Build the offer UI
+        try { if (typeof injectOfferUI === 'function') injectOfferUI(); } catch (e) {
+          console.error('[research2] injectOfferUI failed', e);
+        }
+
+        // 2) Set default mode based on context
+        try { if (typeof setMode === 'function') setMode(NAV_FROM_TICKET ? 'buy' : 'sell'); } catch (e) {}
+
+        // 3) Sync the bottom actions
+        try {
+          if (typeof refreshActionButtons === 'function') refreshActionButtons();
+          if (typeof updateActionVisibility === 'function') updateActionVisibility();
+        } catch (e) {}
+      }
+
+      /* keep your compute wrapper exactly as before */
+      const _origCompute = window.computePricing;
+      if (typeof _origCompute === 'function'){
+        window.computePricing = function(){
+          try { return Promise.resolve(_origCompute.apply(this, arguments)); }
+          finally { setTimeout(()=>{ injectOfferUI(); renderOfferPanel(); }, 0); }
+        };
+      }
+
+      /* ---------- Buy Ticket manager ---------- */
+      const BuyTicket = (function(){
+        const KEY = 'mrad_buyticket_v1';
+        let state = null; // {ticketId, createdAt, seller:{}, meeting:{}, items:[...]}
+
+        function blank(){
+          return {
+            ticketId: todayTicketId(),
+            createdAt: new Date().toISOString(),
+            estimateId: null, // link this ticket to the open estimate (if any)
+            seller: { name:'', contact:'' },
+            meeting: { place:'', when:'' },
+            items: []
+          };
+        }
+        function load(){
+          // 1) Read saved local state (fallback)
+          try { state = JSON.parse(localStorage.getItem(KEY)||'null'); } catch(_){ state=null; }
+          if (!state || !Array.isArray(state.items)) state = blank();
+                 
+          // Capture ticket id from URL (but do NOT set state.ticketId here)
+          let urlTicket = '';
+          try {
+            const m2 = (location.search||'').match(/[?&]ticket=([^&]+)/i);
+            urlTicket = m2 ? decodeURIComponent(m2[1]) : '';
+          } catch(_) {}
+
+          try { if (urlTicket) sessionStorage.setItem('mrad_from_ticket','1'); } catch(_) {}
+
+          
+          // Helper: map server ticket â†’ local state + UI
+          function hydrateFromServerTicket(ticket){
+            state.ticketId   = ticket.ticketId || state.ticketId;
+            state.estimateId = ticket.estimateId || est || state.estimateId;
+
+            // (optional) seller fields if/when stored server-side
+            state.seller = {
+              name:  ticket.sellerName  || state.seller.name || '',
+              phone: ticket.sellerPhone || state.seller.phone || '',
+              email: ticket.sellerEmail || state.seller.email || ''
+            };
+
+            // Items (ignore removed)
+            state.items = (ticket.items || []).filter(it => !it.removedAt).map(it => ({
+              id: it.itemId,
+              img: '',
+              shortTitle: it.shortTitle || '(untitled)',
+              longDesc: it.longDesc || '',
+              tier: state.defaultTier || '',
+              sellThroughLabel: state.sellThroughLabel || '—',
+              suggestedSell: Number(it.plannedSell || 0),
+              baseForOffers: Number(it.plannedSell || 0),
+              chosenOfferPct: null,
+              chosenOfferPrice: null,
+              altOfferPrice: null,
+              offerAmount: (isFinite(Number(it.offerAmount)) ? Number(it.offerAmount) : null),
+              notes: '',
+              status: 'pending',
+              acceptedPrice: null,
+              paidPrice: null
+            }));
+
+            // Header UI
+            $('btId').textContent = state.ticketId || '';
+            $('btSeller').value   = state.seller.name || '';
+            $('btMeet').value     = (state.meeting.place || '') + (state.meeting.when ? (' Â· ' + state.meeting.when) : '');
+            save(); refreshFab(); render();
+          }
+          // --- END: server-backed ticket bootstrapping ---
+
+          // 3) If URL has a new estimate, reset local and create/get the proper ticket on the server
+          
+          let ticketParam = '';
+          try {
+            const m2 = (location.search||'').match(/[?&](ticket|bt|buy)=([^&]+)/i);
+            ticketParam = m2 ? decodeURIComponent(m2[2]) : '';
+          } catch(_) {}
+
+          // --- NEW bootstrapping logic ---
+          if (ticketParam && state.ticketId !== ticketParam) {
+            // Explicit ticket in URL wins: reset local and hydrate that ticket
+            state = blank();
+            state.estimateId = est || '';
+            state.ticketId = ticketParam;
+
+            google.script.run
+              .withSuccessHandler(ticket => { 
+                try { hydrateFromServerTicket(ticket); } catch(_){} 
+                ensureOpen(true);
+                // After we hydrate the ticket, lock the UI into Buy mode
+                setMode('buy');
+                refreshActionButtons();
+              })
+              .withFailureHandler(err => { console.error('[BuyTicket] apiBT_get failed', err); $('btId').textContent = ticketParam; render(); })
+              .apiBT_get(ticketParam);
+
+          } else if (est && state.estimateId !== est) {
+            // Only an estimate in the URL: reset context but DO NOT create a ticket here
+            state = blank();
+            state.estimateId = est;
+            $('btId').textContent = '';
+            refreshFab(); render();
+
+          } else if (state.ticketId) {
+          // Same session with a known ticket: refresh from server for canonical data
+          google.script.run
+            .withSuccessHandler(ticket => {
+              try { hydrateFromServerTicket(ticket); } catch(_) {}
+              // Make sure UI reflects Buy context when a ticket is present
+              try { setMode('buy'); } catch(_) {}
+              try { refreshActionButtons(); } catch(_) {}
+            })
+            .withFailureHandler(_ => { /* keep local fallback */ refreshFab(); render(); })
+            .apiBT_get(state.ticketId);
+
+          } else {
+            // Nothing server-side yet; render empty (first "Add to Buy Ticket" can still create if needed)
+            $('btId').textContent = '';
+            refreshFab(); render();
+          }
+        }
+
+        function save(){ try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(_){ } refreshFab(); }
+        function setHdrFromInputs(){
+          state.seller.name = $('btSeller').value.trim();
+          const meet = $('btMeet').value.trim();
+          const parts = meet.split('Â·');
+          state.meeting.place = (parts[0]||'').trim();
+          state.meeting.when  = (parts[1]||'').trim();
+          save(); showSmallToast('Ticket saved');
+        }
+        function refreshFab(){
+          const n = (state && state.items ? state.items.length : 0);
+          const fab = $('btFab');
+          fab.textContent = `Buy Ticket (${n})`;
+          fab.style.display = 'inline-block';
+        }
+
+        function baseForOffers(){
+          const sL = parseMoney(document.getElementById('soldLow')?.value || '');
+          const sM = parseMoney(document.getElementById('soldMid')?.value || '');
+          const sH = parseMoney(document.getElementById('soldHigh')?.value || '');
+          const xs = [sL,sM,sH].filter(v=>isFinite(v));
+          if (!xs.length) return NaN;
+          return xs.reduce((a,b)=>a+b,0)/xs.length;
+        }
+
+        function nearestPct(base,val){
+          if (!isFinite(base) || base<=0 || !isFinite(val) || val<=0) return null;
+          let best=null, diff=Infinity;
+          for (const p of OFFER_PCTS){
+            const pv = base*(p/100), d = Math.abs(pv - val);
+            if (d < diff){ diff = d; best = p; }
+          }
+          return best;
+        }
+
+        function ensureOpen(open){
+          $('btDrawerBack').style.display = open ? 'block' : 'none';
+          const dr = $('btDrawer');
+          dr.classList.toggle('show', !!open);
+          dr.setAttribute('aria-hidden', open ? 'false' : 'true');
+        }
+
+        // Inside the BuyTicket module on research2:
+        function addCurrent(){
+          // Read fields exactly as requested
+          const shortTitle = ($('shortDesc')?.value || '').trim();
+          const longDesc   = ($('longDesc')?.value  || '').trim();
+
+          // Sell side: Alternate Sell (override) else Recommended Sell
+          const recSell = parseMoney($('recPrice')?.value);
+          const altSell = parseMoney($('altPrice')?.value);
+          const plannedSell = (Number.isFinite(altSell) && altSell > 0) ? altSell : recSell;
+
+          // Buy side: Alternate Buy (override) else Recommended Buy
+          const recBuy = parseMoney($('rp2_buyRec')?.value);
+          const altBuy = parseMoney($('rp2_buyAlt')?.value);
+          const offerAmount = (Number.isFinite(altBuy) && altBuy > 0) ? altBuy : recBuy;
+
+          // Basic validation
+          if (!shortTitle) { alert('Please enter a Short Description (title).'); return; }
+          if (!Number.isFinite(plannedSell) || plannedSell < 0) { alert('Planned Sell is missing or invalid.'); return; }
+          if (!Number.isFinite(offerAmount) || offerAmount < 0) { alert('Offer Amount is missing or invalid.'); return; }
+
+          const payload = {
+            shortTitle,
+            longDesc,
+            plannedSell: Number(plannedSell),
+            offerAmount: Number(offerAmount),
+            offerSource: 'Research'
+          };
+
+          const ticketId = resolveTicketId();
+          if (!ticketId) {
+            alert('Missing TicketID. Please open Research from a Buy Ticket and try again.');
+            return;
+          }
+
+           // --- NEW: Immediate visual feedback on the button ---
+          const btn = $('rp2_addToTicket');
+          const originalLabel = btn ? btn.textContent : '';
+          if (btn) {
+            btn.disabled = true;
+            btn.setAttribute('aria-busy', 'true');
+            btn.textContent = 'Adding…';
+
+          }
+          
+          console.debug('[research2] apiBT_addItem â†’', { ticketId, payload });
+
+          google.script.run
+            .withSuccessHandler(res => {
+              try {
+                if (!res || res.ok !== true) {
+                  console.error('[research2] apiBT_addItem error', res);
+                  alert('Server returned an error while adding the item. See console for details.');
+                  // restore button state on error
+                  if (btn) {
+                    btn.disabled = false;
+                    btn.removeAttribute('aria-busy');
+                    btn.textContent = originalLabel || 'Add to Buy Ticket';
+                  }
+                  return;
+                }
+
+                // Friendly success toast (uses the existing #toast styles/util)
+                // showSmallToast is already defined in this files helpers.
+                showSmallToast('Added to Buy Ticket. Please Return to the Buy Ticket');
+                // Brief success state on the button, then restore
+                if (btn) {
+                  btn.textContent = 'Added âœ“ Return to Buy Ticket';
+                  btn.removeAttribute('aria-busy');   // â† stop showing the busy state
+                }
+
+                if (Array.isArray(res._logs)) {
+                  console.groupCollapsed('[apiBT_addItem server logs]');
+                  res._logs.forEach(l => console.debug(l));
+                  console.groupEnd();
+                }
+              } finally {
+                // Return to the originating ticket view
+                gotoBuyTicket(ticketId);
+              }
+            })
+            .withFailureHandler(err => {
+              console.error('[research2] apiBT_addItem failed', err);
+              alert('Apps Script call failed while adding the item. See console for details.');
+              // Restore button state on failure
+              if (btn) {
+                btn.disabled = false;
+                btn.removeAttribute('aria-busy');
+                btn.textContent = originalLabel || 'Add to Buy Ticket';
+              }
+            })
+            .apiBT_addItem(ticketId, payload);
+        }
+
+
+
+        function removeItem(id){ state.items = state.items.filter(x => x.id !== id); save(); render(); }
+        function setStatus(id, next){
+          const it = state.items.find(x=>x.id===id); if (!it) return;
+          it.status = next;
+          if (next==='accepted' && it.acceptedPrice==null){
+            it.acceptedPrice = it.altOfferPrice!=null ? it.altOfferPrice : it.chosenOfferPrice;
+          }
+          if (next==='paid' && it.paidPrice==null){
+            it.paidPrice = it.acceptedPrice!=null ? it.acceptedPrice : (it.altOfferPrice!=null?it.altOfferPrice:it.chosenOfferPrice);
+          }
+          save(); render();
+        }
+        function choosePct(id, pct){
+          const it = state.items.find(x=>x.id===id); if (!it) return;
+          it.chosenOfferPct = pct;
+          it.chosenOfferPrice = +(Number(it.baseForOffers) * (pct/100)).toFixed(2);
+          save(); render();
+        }
+
+        function render(){
+          const wrap = $('btRows');
+          if (!state.items.length){
+            wrap.innerHTML = `<div class="btEmpty">No items yet. In <em>Buy</em> mode, use Add to Buy Ticket.</div>`;
+            $('btHint').textContent = 'Total: $0.00';
+            refreshFab(); return;
+          }
+
+          let html = '';
+          state.items.forEach(it=>{
+            html += `
+              <div class="btRow" data-row="${it.id}">
+                <img src="${it.img || ''}" alt="">
+                <div>
+                  <div class="ttl">${it.shortTitle || '(untitled)'}</div>
+                  <div class="muted">Sell-through: ${it.sellThroughLabel || '—'} · Planned sell: ${money(it.suggestedSell)} Â· Tier: ${it.tier}</div>
+                </div>
+                <div>
+                  <label class="muted">Offer amount</label>
+                  <input class="mini" type="number" step="0.01" data-act="offer" data-id="${it.id}" value="${isFinite(it.offerAmount)?it.offerAmount:''}" placeholder="$">
+                </div>
+                <div class="btns">
+                  <button class="btnSm" data-act="prep" data-id="${it.id}">Prepare for Intake</button>
+                  <button class="btnSm warn" data-act="rm" data-id="${it.id}">Remove</button>
+                </div>
+              </div>`;
+          });
+          wrap.innerHTML = html;
+
+          // wiring (no status buttons anymore)
+          wrap.querySelectorAll('[data-act="offer"]').forEach(inp=>{
+            inp.addEventListener('change', e=>{
+              const id=e.currentTarget.getAttribute('data-id');
+              const it = state.items.find(x=>x.id===id); if (!it) return;
+              const n = parseFloat(e.currentTarget.value);
+              it.offerAmount = isFinite(n) ? +n.toFixed(2) : null;
+              save(); render(); // refresh total immediately
+            });
+          });
+          wrap.querySelectorAll('[data-act="rm"]').forEach(btn=>{
+            btn.addEventListener('click', e=>{
+              const id=e.currentTarget.getAttribute('data-id'); if (!confirm('Remove item from ticket?')) return; removeItem(id);
+            });
+          });
+          wrap.querySelectorAll('[data-act="prep"]').forEach(btn=>{
+            btn.addEventListener('click', e=>{
+              const id=e.currentTarget.getAttribute('data-id');
+              prepareForIntake(id);
+            });
+          });
+
+          // Total uses offerAmount (fallback to legacy fields for safety)
+          const total = state.items.reduce((sum,it)=>{
+            const offer = isFinite(it.offerAmount) ? it.offerAmount
+                        : (it.altOfferPrice!=null ? it.altOfferPrice : it.chosenOfferPrice);
+            return sum + (isFinite(offer)? Number(offer) : 0);
+          }, 0);
+          $('btHint').textContent = 'Total: ' + money(total);
+
+          refreshFab();
+        }
+
+        function csvEscape(s){ s = String(s==null?'':s); if (/[",\n]/.test(s)) return '"' + s.replace(/"/g,'""') + '"'; return s; }
+        function exportCsv(){
+          const cols = ['TicketId','ShortTitle','SellThrough','Tier','PlannedSell','OfferAmount','RecommendedPct','ChosenOfferPct','ChosenOfferPrice'];
+          const lines = [cols.join(',')];
+          state.items.forEach(it=>{
+            lines.push([
+              state.ticketId, it.shortTitle, it.sellThroughLabel || '', it.tier,
+              it.suggestedSell,
+              (isFinite(it.offerAmount)?it.offerAmount:''),
+              it.recommendedPct,
+              it.chosenOfferPct,
+              it.chosenOfferPrice
+            ].map(csvEscape).join(','));
+          });
+          const blob = new Blob([lines.join('\n')], {type:'text/csv'});
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a'); a.href=url; a.download = state.ticketId + '.csv';
+          document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+        }
+
+        function buildPrintHtml(showInternals){
+          const head = `
+            <style>
+              body{font-family:system-ui,Segoe UI,Roboto,sans-serif;margin:0;padding:16px;color:#111}
+              h1{font-size:18px;margin:0 0 10px}
+              .muted{color:#555}
+              table{width:100%;border-collapse:collapse}
+              th,td{border:1px solid #ddd;padding:6px 8px;font-size:13px;vertical-align:top}
+              th{background:#f3f4f6;text-align:left}
+              img{width:52px;height:52px;object-fit:cover;border-radius:6px}
+            </style>`;
+          const colsSeller = ['#','Photo','Title','Your Offer','Qty','Notes'];
+          const colsEmp    = ['#','Photo','Title','Sell-through','Planned Sell','Tier','Offer','Status'];
+          const header = `
+            <h1>Buy Ticket” ${state.ticketId}</h1>
+            <div class="muted">${(state.seller.name||'') || '(no seller)'} Â· ${(state.meeting.place||'')} ${(state.meeting.when?('Â· '+state.meeting.when):'')}</div>
+            <br/>`;
+          const ths = (showInternals?colsEmp:colsSeller).map(c=>`<th>${c}</th>`).join('');
+          let rows = '';
+          state.items.forEach((it,i)=>{
+            const offer = isFinite(it.offerAmount) ? it.offerAmount
+                        : (it.altOfferPrice!=null?it.altOfferPrice:it.chosenOfferPrice);
+            if (showInternals){
+              rows += `<tr>
+                <td>${i+1}</td>
+                <td><img src="${it.img||''}"></td>
+                <td>${it.shortTitle||''}</td>
+                <td>${it.sellThroughLabel||''}</td>
+                <td>${money(it.suggestedSell)}</td>
+                <td>${it.tier||''}</td>
+                <td>${money(offer)}</td>
+                <td>${it.status}</td>
+              </tr>`;
+            } else {
+              rows += `<tr>
+                <td>${i+1}</td>
+                <td><img src="${it.img||''}"></td>
+                <td>${it.shortTitle||''}</td>
+                <td><strong>${money(offer)}</strong></td>
+                <td>1</td>
+                <td></td>
+              </tr>`;
+            }
+          });
+          return `<!doctype html><html><head>${head}</head><body>${header}<table><thead><tr>${ths}</tr></thead><tbody>${rows}</tbody></table></body></html>`;
+        }
+        function printSeller(){ const w=window.open('about:blank'); w.document.write(buildPrintHtml(false)); w.document.close(); w.focus(); w.print(); }
+        function printEmp(){    const w=window.open('about:blank'); w.document.write(buildPrintHtml(true));  w.document.close(); w.focus(); w.print(); }
+
+        function copyOfferText(){
+          const lines = state.items.map(it=>{
+            const offer = isFinite(it.offerAmount) ? it.offerAmount
+                        : (it.altOfferPrice!=null?it.altOfferPrice:it.chosenOfferPrice);
+            return `${it.shortTitle || '(untitled)'} — $${Number(offer||0).toFixed(2)}`;
+
+          });
+          navigator.clipboard.writeText(lines.join('\n')).then(()=>showSmallToast('Offer text copied'));
+        }
+
+        function newTicket(){
+          if (!confirm('Start a new Buy Ticket? Current items will remain saved as a backup CSV if you exported.')) return;
+          state = blank(); save(); render(); $('btId').textContent = state.ticketId; showSmallToast('New ticket created');
+        }
+
+        // Handoff to Intake: re-use existing saveIntakeDraft() + redirect
+        function prepareForIntake(id){
+          const it = state.items.find(x=>x.id===id); if (!it) return;
+          const d = {
+            shortDesc: it.shortTitle || '',
+            longDesc:  it.longDesc   || '',
+            activeCount: Number(document.getElementById('actCount')?.value) || null,
+            activeLow:   Number(document.getElementById('actLow')?.value)   || null,
+            activeMid:   Number(document.getElementById('actMid')?.value)   || null,
+            activeHigh:  Number(document.getElementById('actHigh')?.value)  || null,
+            soldCount:   Number(document.getElementById('soldCount')?.value)|| null,
+            soldLow:     Number(document.getElementById('soldLow')?.value)  || null,
+            soldMid:     Number(document.getElementById('soldMid')?.value)  || null,
+            soldHigh:    Number(document.getElementById('soldHigh')?.value) || null,
+            sellThrough: document.getElementById('sellThrough')?.value || '',
+            recPrice:    ( (document.getElementById('recPrice')?.value || '').replace('$','') ),
+            altPrice:    Number(document.getElementById('altPrice')?.value) || null,
+            imageB64:    (window.lastImageB64 || null)
+          };
+          google.script.run
+            .withSuccessHandler(res=>{
+              try { sessionStorage.setItem('mrad_autoload_draft','1'); } catch(_) {}
+              const base = (window.MADRAD_EXEC_URL || '').replace(/\/+$/,'');
+              (window.top || window).location.replace(base + '?page=intake');
+            })
+            .withFailureHandler(err=>{ alert(err && err.message ? err.message : String(err)); })
+            .saveIntakeDraft(d);
+        }
+
+        function initUI(){
+          $('btFab').addEventListener('click', ()=>ensureOpen(true));
+          $('btDrawerBack').addEventListener('click', ()=>ensureOpen(false));
+          $('btClose').addEventListener('click', ()=>ensureOpen(false));
+          $('btSaveHdr').addEventListener('click', setHdrFromInputs);
+          $('btPrintSeller').addEventListener('click', printSeller);
+          $('btPrintEmp').addEventListener('click', printEmp);
+          $('btCopyOfferTxt').addEventListener('click', copyOfferText);
+          $('btExport').addEventListener('click', exportCsv);
+          $('btNew').addEventListener('click', newTicket);
+          load();
+        }
+
+        return { initUI, addCurrent, exportCsv, printSeller, printEmp };
+      })();
+
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', BuyTicket.initUI);
+      else BuyTicket.initUI();
+
+      window.ResellProBuyTicket = BuyTicket;
+    })();
+    </script>
+    <!--end price to buy block (PHASE B) -->
+
+</body>
+</html>

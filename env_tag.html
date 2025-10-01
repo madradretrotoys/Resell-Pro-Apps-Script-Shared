@@ -1,0 +1,39 @@
+<!-- env_tag.html — shared version badge -->
+<style>
+  .env-badge {
+    font: 12px/1.2 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    padding: 4px 8px; border-radius: 10px; display: inline-block; user-select: none;
+    background: #f3f4f6; color: #111827; border: 1px solid #e5e7eb;
+  }
+  .env-badge.dev  { background: #fff7ed; color: #9a3412; border-color: #fed7aa; }  /* DEV = orange */
+  .env-badge.prod { background: #ecfdf5; color: #065f46; border-color: #a7f3d0; }  /* PROD = green  */
+</style>
+
+<span id="envTag" class="env-badge dev" title="Deployment label">DEV</span>
+
+<script>
+(function() {
+  if (!window.google || !google.script || !google.script.run) return;
+
+  google.script.run
+    .withSuccessHandler(function(info){
+      try {
+        var el = document.getElementById('envTag');
+        if (!el || !info) return;
+
+        var isDev = !!info.isDev;
+        var label = info.label || (isDev ? 'DEV' : 'PROD');
+        el.textContent = label;
+        el.classList.remove('dev','prod');
+        el.classList.add(isDev ? 'dev' : 'prod');
+
+        var tip = (isDev ? 'Development build' : 'Production build');
+        if (info.version) tip += ' — version ' + info.version;
+        if (info.depId)   tip += ' — id ' + String(info.depId).slice(0, 6) + '…';
+        if (info.source)  tip += ' (' + info.source + ')';
+        el.title = tip;
+      } catch (_) {}
+    })
+    .apiGetVersionTag();
+})();
+</script>

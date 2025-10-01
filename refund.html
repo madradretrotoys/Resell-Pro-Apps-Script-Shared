@@ -1,0 +1,320 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Refunds / Voids</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { --gap: 12px; --radius: 12px; --pad: 12px; }
+    *{box-sizing:border-box}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0;background:#fafafa;color:#111}
+    header{background:#fff;border-bottom:1px solid #eee}
+    header .wrap{max-width:1000px;margin:0 auto;padding:10px 16px;display:flex;justify-content:space-between;align-items:center}
+    h1{font-size:22px;margin:10px 0}
+    main .wrap{max-width:1000px;margin:0 auto;padding:16px}
+    .card{background:#fff;border:1px solid #eee;border-radius:var(--radius);padding:var(--pad);box-shadow:0 1px 2px rgba(0,0,0,.04)}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    input,button,select{font-size:16px}
+    input,select{border:1px solid #ddd;border-radius:10px;padding:10px 12px;background:#fff}
+    button{border-radius:10px;padding:10px 12px;border:1px solid #0ea5e9;background:#0ea5e9;color:#fff;cursor:pointer}
+    button.ghost{border-color:#d1d5db;background:#fff;color:#111}
+    button.warn{border-color:#ef4444;background:#ef4444}
+    .muted{color:#666}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:8px;border-bottom:1px solid #eee}
+    th{background:#f8fafc;text-align:left}
+    td.right,th.right{text-align:right}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    details#dbg{margin-top:12px}
+    details#dbg pre{max-height:260px;overflow:auto;background:#0b1021;color:#e6e6e6;padding:10px;border-radius:10px;font-size:12px;line-height:1.45}
+    details#dbg summary{cursor:pointer}
+  </style>
+</head>
+<body>
+
+  <script>
+      window.MADRAD_PAGE = 'refund';
+      window.MADRAD_EXEC_URL = '<?= execUrl ?>';
+    </script>
+  <?!= include('nav'); ?>
+
+<header>
+  <div class="wrap">
+    <h1>Refunds / Voids</h1>
+    <div class="muted">Find a sale and select quantities to refund</div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="card">
+    <div class="row">
+      <input id="saleId" placeholder="Sale ID (from Sales Log column B)" style="flex:1;" />
+      <button id="btnLoad" type="button">Load sale</button>
+      <button id="btnClear" class="ghost" type="button">Clear</button>
+    </div>
+    <div id="msg" class="mono" style="margin-top:8px;color:#2563eb;"></div>
+  </section>
+
+  <section id="saleBox" class="card" style="margin-top:12px; display:none;">
+    <div class="row" style="justify-content:space-between">
+      <div>
+        <div class="mono">ID: <span id="sId">—</span></div>
+        <div class="mono">When: <span id="sTime">—</span></div>
+        <div class="mono">Clerk: <span id="sClerk">—</span></div>
+      </div>
+      <div>
+        <div class="mono">Payment: <span id="sPay">—</span></div>
+        <div class="mono">Total: <span id="sTotal">$0.00</span></div>
+        <div class="mono">Tax rate: <span id="sTaxRate">0%</span></div>
+      </div>
+    </div>
+
+    <div style="margin-top:10px;overflow:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th class="right">Price</th>
+            <th class="right">Sold Qty</th>
+            <th class="right">Refund Qty</th>
+            <th class="right">Line Refund</th>
+          </tr>
+        </thead>
+        <tbody id="lines"></tbody>
+      </table>
+    </div>
+
+    <!-- A) Refund totals + action panel -->
+    <div id="rfPanel" class="row" style="justify-content:space-between;align-items:center;margin-top:10px;gap:8px;display:none;">
+      <div class="mono">
+        Refund subtotal: <span id="rfSub">$0.00</span> ·
+        Tax: <span id="rfTax">$0.00</span> ·
+        Total refund: <strong id="rfTotal">$0.00</strong>
+      </div>
+      <div class="row" style="gap:8px;">
+        <button id="btnProcess" class="warn" type="button" disabled>Process Refund</button>
+      </div>
+    </div>
+    <div id="rfMsg" class="mono" style="margin-top:6px;color:#2563eb;"></div>
+  </section>
+
+  <details id="dbg" class="card">
+    <summary>🔎 Debug log (click to open)</summary>
+    <pre id="debug">[debug started]</pre>
+  </details>
+</main>
+
+<script>
+/* ========= tiny utils & debug ========= */
+const $ = id => document.getElementById(id);
+function fmt(n){ return '$' + (Number(n)||0).toFixed(2); }
+function j(x){ try{return JSON.stringify(x,null,2)}catch(_){return String(x)} }
+function dbg(...a){ console.log(...a); const d=$('debug'); if(d){ d.textContent += '\n' + a.map(v=>typeof v==='string'?v:j(v)).join(' ');} }
+window.addEventListener('error', e => dbg('window.onerror:', e.message));
+window.addEventListener('unhandledrejection', e => dbg('unhandledrejection:', (e.reason&&e.reason.message)||String(e.reason)));
+
+let CURRENT = null;
+
+/* ========= helpers ========= */
+function clampQty(q, sold){ return Math.max(0, Math.min(sold, Math.floor(Number(q)||0))); }
+function getItemsList(){
+  let items = Array.isArray(CURRENT?.items) ? CURRENT.items : [];
+  if (!items.length && CURRENT && CURRENT.envelope){
+    if (Array.isArray(CURRENT.envelope)) items = CURRENT.envelope;
+    else if (Array.isArray(CURRENT.envelope.items)) items = CURRENT.envelope.items;
+  }
+  return (items || []).map(it => ({
+    sku:   String(it.sku || ''),
+    name:  String(it.name || ''),
+    price: Number(it.price) || 0,
+    qty:   Number(it.qty) || 1
+  }));
+}
+function collectRefundLinesAndTotals(){
+  const items = getItemsList();
+  const inputs = document.querySelectorAll('#lines input.rfQty');
+  const lines = [];
+  let subtotal = 0;
+  inputs.forEach(inp => {
+    const idx  = Number(inp.dataset.idx);
+    const sold = items[idx] ? items[idx].qty : Number(inp.getAttribute('max'))||0;
+    const qty  = clampQty(inp.value, sold);
+    if (qty > 0 && items[idx]){
+      const it = items[idx];
+      lines.push({ sku: it.sku, name: it.name, price: it.price, qty });
+      subtotal += it.price * qty;
+    }
+  });
+  subtotal = +subtotal.toFixed(2);
+  const tax = +((subtotal * (Number(CURRENT?.taxRate)||0)).toFixed(2));
+  const total = +(subtotal + tax).toFixed(2);
+  return { lines, subtotal, tax, total };
+}
+function recalcRefundPreview(){
+  const items = getItemsList();
+  document.querySelectorAll('#lines input.rfQty').forEach(inp => {
+    const idx  = Number(inp.dataset.idx);
+    const sold = items[idx] ? items[idx].qty : Number(inp.getAttribute('max'))||0;
+    const v    = clampQty(inp.value, sold);
+    if (String(v) !== inp.value) inp.value = v;
+    const amt  = items[idx] ? +(items[idx].price * v).toFixed(2) : 0;
+    const cell = document.getElementById('ln'+idx);
+    if (cell) cell.textContent = fmt(amt);
+  });
+  const r = collectRefundLinesAndTotals();
+  if ($('rfSub'))   $('rfSub').textContent   = fmt(r.subtotal);
+  if ($('rfTax'))   $('rfTax').textContent   = fmt(r.tax);
+  if ($('rfTotal')) $('rfTotal').textContent = fmt(r.total);
+  if ($('btnProcess')) $('btnProcess').disabled = r.total <= 0 || r.lines.length === 0;
+  dbg('preview:', r);
+  return r;
+}
+function wireRefundInputs(){
+  document.querySelectorAll('#lines input.rfQty').forEach(inp => {
+    inp.addEventListener('input', recalcRefundPreview);
+  });
+  recalcRefundPreview();
+}
+
+/* ========= Clear UI ========= */
+$('btnClear').onclick = () => {
+  $('saleId').value='';
+  $('saleBox').style.display='none';
+  $('lines').innerHTML='';
+  $('msg').textContent='';
+  if ($('rfPanel')) $('rfPanel').style.display='none';
+  if ($('rfMsg')) $('rfMsg').textContent='';
+  dbg('UI cleared');
+};
+
+/* ========= Load sale ========= */
+$('btnLoad').onclick = () => {
+  const id = $('saleId').value.trim();
+  if (!id) { $('msg').textContent='Enter a Sale ID.'; return; }
+  const btn = $('btnLoad'); const prev = btn.textContent;
+  btn.disabled = true; btn.textContent='Loading…'; $('msg').textContent='Loading…';
+  dbg('calling apiSale_Get_v2 with id:', id);
+
+  google.script.run
+    .withSuccessHandler(sale => {
+      dbg('apiSale_Get_v2 → success; raw sale object:', sale);
+      btn.disabled=false; btn.textContent=prev;
+      if (!sale || !sale.saleId){
+        $('msg').textContent='Sale not found.'; dbg('sale missing/invalid'); return;
+      }
+      CURRENT = sale;
+      try { renderSale(); $('msg').textContent=''; }
+      catch(e){ $('msg').textContent='Render error: '+(e.message||e); dbg('renderSale threw:', e); }
+    })
+    .withFailureHandler(err => {
+      btn.disabled=false; btn.textContent=prev;
+      const msg=(err&&err.message)||'Load failed';
+      $('msg').textContent=msg; dbg('apiSale_Get_v2 → failure:', err); alert('Load failed: '+msg);
+    })
+    .apiSale_Get_v2(id);
+};
+
+/* ========= Render sale ========= */
+function renderSale(){
+  const s = CURRENT;
+  dbg('renderSale() with CURRENT:', s);
+
+  $('saleBox').style.display = 'block';
+  $('sId').textContent    = s.saleId || '';
+  $('sTime').textContent  = s.displayTime || '';
+  $('sClerk').textContent = s.clerk || '';
+
+  let payText = s.paymentMethod || '';
+  if (Array.isArray(s.payments) && s.payments.length) {
+    payText = s.payments.map(p => `${p.method} ${fmt(Number(p.amount)||0)}`).join(' + ');
+  } else if ((s.paymentMethod || '').toLowerCase() === 'split') {
+    payText = 'Split';
+  }
+  $('sPay').textContent   = payText;
+  $('sTotal').textContent = fmt(s.total || 0);
+  $('sTaxRate').textContent = ((s.taxRate || 0) * 100).toFixed(2) + '%';
+
+  const tbody = $('lines'); tbody.innerHTML='';
+  const items = getItemsList();
+  if (!items.length){
+    tbody.innerHTML = '<tr><td colspan="5" class="muted">No items found for this sale.</td></tr>';
+    if ($('rfPanel')) $('rfPanel').style.display='none';
+    if ($('btnProcess')) $('btnProcess').disabled = true;
+    return;
+  }
+
+  items.forEach((it, idx) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${it.name || it.sku || 'Item'}</td>
+      <td class="right mono">${fmt(it.price)}</td>
+      <td class="right mono">${it.qty}</td>
+      <td class="right">
+        <input class="rfQty" type="number" min="0" max="${it.qty}" step="1" value="0"
+               data-idx="${idx}" style="width:80px;text-align:right">
+      </td>
+      <td class="right mono" id="ln${idx}">$0.00</td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  if ($('rfPanel')) $('rfPanel').style.display = 'flex';
+  wireRefundInputs();
+  dbg('renderSale() finished table');
+}
+
+/* ========= Process refund ========= */
+const processBtn = $('btnProcess');
+if (processBtn){
+  processBtn.addEventListener('click', () => {
+    const r = recalcRefundPreview();
+    if (!r.lines.length){ alert('Enter at least one refund quantity.'); return; }
+
+    const ok = confirm(`Refund ${fmt(r.total)} (${fmt(r.subtotal)} + ${fmt(r.tax)} tax) for ${r.lines.length} item(s)?`);
+    if (!ok) return;
+
+    processBtn.disabled = true;
+    const prev = processBtn.textContent;
+    processBtn.textContent = 'Processing…';
+    if ($('rfMsg')) $('rfMsg').textContent = '';
+
+    const payload = {
+      origSaleId: CURRENT?.saleId || '',
+      clerk: (window.MADRAD_PROFILE?.user) || CURRENT?.clerk || '',
+      taxRate: Number(CURRENT?.taxRate) || 0,
+      subtotal: r.subtotal,
+      tax: r.tax,
+      total: r.total,
+      lines: r.lines,                                   // array form
+      linesJson: JSON.stringify(r.lines),               // string fallback for server
+      payments: Array.isArray(CURRENT?.payments) ? CURRENT.payments : [],
+      paymentMethod: CURRENT?.paymentMethod || ''
+    };
+    dbg('submit payload:', payload);
+
+    google.script.run
+      .withSuccessHandler(res => {
+        processBtn.disabled = false; processBtn.textContent = prev;
+        dbg('refund saved:', res);
+        alert(`Refund saved.\nID: ${res.refundId}\nTotal: ${fmt(res.total)}`);
+        document.querySelectorAll('#lines input.rfQty').forEach(inp => inp.value = '0');
+        recalcRefundPreview();
+      })
+      .withFailureHandler(err => {
+        processBtn.disabled = false; processBtn.textContent = prev;
+        const msg = (err && err.message) || String(err);
+        dbg('refund failed:', msg);
+        alert('Refund failed: ' + msg);
+      })
+      .apiSale_Refund(payload);
+  });
+}
+
+dbg('refund.html loaded; execUrl =', '<?= execUrl ?>');
+try { dbg('cached profile:', JSON.parse(localStorage.getItem('mrad_profile')||'null')); } catch(_){}
+</script>
+
+</body>
+</html>
+
+

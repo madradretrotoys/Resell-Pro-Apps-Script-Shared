@@ -1,0 +1,131 @@
+<style>
+  .topnav{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid #eee;background:#fff;position:sticky;top:0;z-index:100}
+  .topnav a{text-decoration:none;padding:6px 10px;border-radius:8px;border:1px solid #e5e7eb;background:#f8fafc;color:#111;font-size:14px}
+  .topnav a.active{background:#111827;color:#fff;border-color:#111827}
+  .topnav .spacer{flex:1}
+  .topnav a.ghost{background:#fff}
+  .topnav a .dots{display:none;margin-left:6px}
+  .topnav a.busy .dots{display:inline;animation:pulseDots 1.1s infinite}
+  .topnav a.busy{pointer-events:none;opacity:.6;cursor:default}
+  @keyframes pulseDots{0%{opacity:.2}50%{opacity:1}100%{opacity:.2}}
+</style>
+
+<div class="topnav">
+  <strong>Mad Rad</strong>
+  <a id="linkIntake"   href="#" onclick="return __nav('intake', this)">Intake</a>
+  <a id="linkPOS"      href="#" onclick="return __nav('pos', this)">POS</a>
+  <a id="linkDrawer"   href="#" onclick="return __nav('drawer', this)">Drawer</a>
+  <a id="linkPayout"   href="#" onclick="return __nav('payout', this)">Payouts</a>
+  <a id="linkRefund"   href="#" onclick="return __nav('refund', this)">Refunds</a>
+  <a id="linkestimate_drop"   href="#" onclick="return __nav('estimate_drop', this)">Drop Off Form</a>
+  <a id="linkestimate"   href="#" onclick="return __nav('estimate', this)">Estimates</a>
+  <a id="linkResearch2" href="#" onclick="return __nav('research2', this)">Research</a>
+  <a id="linktimesheet" href="#" onclick="return __nav('timesheet', this)">Timesheet</a>
+  <div class="spacer"></div>
+  <a id="linkSignOut" class="ghost" href="#" onclick="return __signOut()">
+    <span class="label">Sign out</span><span class="dots">•••</span>
+  </a>
+  <span id="appVersion" class="mono" style="margin-left:12px; opacity:.8; font-size:12px;"></span>
+
+</div>
+
+<script>
+(function(){
+  // --- Navigation helpers ---
+  function parseBase(u){
+    var m = String(u||'').match(/^(https?:\/\/[^\/]+\/macros\/s\/[^\/]+)\/(exec|dev)\b/i);
+    return m ? (m[1] + '/' + m[2]) : null;
+  }
+
+  var BASE = parseBase(location.href) || parseBase(document.referrer) || null;
+
+  function ensureBaseThen(fn, page){
+    if (BASE) { fn(page); return; }
+    try {
+      google.script.run
+        .withSuccessHandler(function(url){
+          BASE = (parseBase(url) || url || '').replace(/\/+$/,'');
+          try{ sessionStorage.setItem('mrad_base_url', BASE); }catch(_){}
+          fn(page);
+        })
+        .withFailureHandler(function(){ /* no-op */ })
+        .apiGetBase();
+    } catch(_) { /* no-op */ }
+  }
+
+  function go(page){
+    var target = (BASE||'').replace(/\/+$/,'') + '?page=' + page;
+    try { (window.top || window).location.href = target; }
+    catch(_) { location.href = target; }
+  }
+
+  window.__nav = function(page, el){
+    try {
+      document.querySelectorAll('.topnav a').forEach(a => a.classList.remove('active','busy'));
+      if (el) el.classList.add('busy');
+    } catch(_) {}
+    ensureBaseThen(go, page);
+    return false;
+  };
+
+  window.__signOut = function(){
+    localStorage.removeItem('mrad_token');
+    localStorage.removeItem('mrad_profile');
+    ensureBaseThen(function(){ go('login'); });
+    return false;
+  };
+
+  (function(){
+    // Fetch and show deployment tag once the nav loads
+    google.script.run
+      .withSuccessHandler(function(r){
+        var el = document.getElementById('appVersion');
+        if (!el || !r) return;
+        // Examples: "v123", "DEV", "v123 · Hotfix"
+        el.textContent = r.label + (r.description ? (' · ' + r.description) : '');
+        // Helpful tooltip with details
+        el.title = (r.isDev ? 'Development build' : ('Deployment ID: ' + (r.depId||'')));
+      })
+      .withFailureHandler(function(){ /* leave it blank on error */ })
+      .apiGetVersionTag();
+  })();
+
+  // --- Active tab highlight ---
+  // Strongest signal: the page itself tells us.
+  var page = (window.MADRAD_PAGE || '').toString().toLowerCase();
+
+  // Fallbacks if not provided (less reliable in Apps Script, but harmless):
+  if (!page) {
+    try {
+      var qs = (window.top && window.top.location && window.top.location.search) || location.search || '';
+      page = new URLSearchParams(qs).get('page') || '';
+    } catch(_){}
+  }
+  if (!page && document.referrer) {
+    try { page = (new URL(document.referrer).searchParams.get('page') || '').toLowerCase(); } catch(_){}
+  }
+  if (!page) {
+    try { page = (sessionStorage.getItem('mrad_last_page') || '').toLowerCase(); } catch(_){}
+  }
+  if (!page) page = 'intake'; // final default
+
+  try { sessionStorage.setItem('mrad_last_page', page); } catch(_){}
+
+  var activeId =
+      page==='pos'      ? 'linkPOS' :
+      page==='drawer'   ? 'linkDrawer' :
+      page==='payout'   ? 'linkPayout' :
+      page==='refund'   ? 'linkRefund' :
+      page==='estimate_drop'   ? 'linkestimate_drop' :
+      page==='estimate'   ? 'linkestimate' :
+      page==='research2' ? 'linkResearch2' :
+      page==='timesheet' ? 'linktimesheet' :
+                          'linkIntake';
+
+  try {
+    document.querySelectorAll('.topnav a').forEach(a => a.classList.remove('active'));
+    var el = document.getElementById(activeId);
+    if (el) el.classList.add('active');
+  } catch(_) {}
+})();
+</script>

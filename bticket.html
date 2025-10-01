@@ -1,0 +1,1685 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Buy Ticket</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+      .wrap { max-width: 980px; margin: 24px auto; padding: 0 12px; }
+      .row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; align-items: center; }
+      .label { color:#666; font-size: 12px; }
+      .value { font-weight: 600; }
+      table { width:100%; border-collapse: collapse; }
+      /* Divider between Total offer (col 6) and Actions (col 7) */
+      .items-table th:nth-child(6),
+      .items-table td:nth-child(6){
+        border-right: 1px solid #e5e7eb;
+      }
+      .items-table th:nth-child(7),
+      .items-table td:nth-child(7){
+        padding-left: 16px; /* a little breathing room after the divider */
+      }
+      th, td { padding: 10px; border-bottom: 1px solid #eee; text-align: left; }
+      .muted { color:#777; }
+      .toast {
+        position: fixed; left: 12px; bottom: 12px; background: #111; color: #fff;
+        padding: 8px 12px; border-radius: 6px; font-size: 12px; opacity: .9;
+      }
+      .toolbar { display:flex; gap:10px; align-items:end; margin: 16px 0; flex-wrap: wrap; }
+      .toolbar .field { display:flex; flex-direction:column; }
+      .toolbar label { font-size:12px; color:#666; margin-bottom:4px; }
+      .toolbar input[type="text"],
+      .toolbar input[type="number"] { padding:8px 10px; border:1px solid #ccc; border-radius:6px; min-width: 160px; }
+      .toolbar button { padding:9px 14px; border:0; border-radius:8px; background:#0b5; color:#fff; font-weight:600; cursor:pointer; }
+      .toolbar button.secondary { background:#555; }
+      .toolbar button:disabled { opacity:.6; cursor:not-allowed; }
+      .btn { padding:6px 10px; border:1px solid #ddd; background:#fff; border-radius:8px; cursor:pointer; }
+      .btn.save { background:#0b5; color:#fff; border-color:#0b5; }
+      .btn.small { font-size:12px; padding:4px 8px; }
+      .btn.danger { background:#e11; color:#fff; border-color:#e11; }
+      .btn.ghost { background:#fff; color:#111; }
+      .btn.blue { background:#2563eb; color:#fff; border-color:#2563eb; }
+      .btn.orange { background:#f97316; color:#fff; border-color:#f97316; }
+      .btn.slate { background:#334155; color:#fff; border-color:#334155; }
+      .totals { display:flex; justify-content:flex-end; gap:20px; margin-top:10px; font-weight:700; }
+      .totals .k { color:#666; font-weight:600; }
+      /* NEW: small helper styles for the payments row */
+      .totals-title { margin-right:auto; color:#666; font-weight:600; }
+      .paytotals { margin-top:4px; }
+      .paycard{border:1px solid #e5e7eb;background:#f9fafb;border-radius:12px;padding:12px 16px;margin:12px 0 16px}
+      .paycard-head{font-weight:700;color:#111;margin:0 0 6px 0}
+      .paygrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px 16px}
+      /* before: justify-content:space-between */
+      .paygrid .item{
+        display:flex;
+        align-items:center;
+        gap:8px;           /* small, consistent space between label and $ */
+      }
+      .paygrid .k{color:#374151;font-weight:600}
+      /* before: .paygrid .value{font-weight:700} */
+      .paygrid .value{
+        font-weight:700;
+        margin-left:2px;          /* pulls numbers a bit closer to the label */
+        font-variant-numeric: tabular-nums;  /* cleaner alignment of digits */
+      }
+      .dirtyFlag { font-size:11px; color:#b45309; margin-left:8px; }
+      .err { font-size:11px; color:#b91c1c; margin-left:8px; display:none; }
+      input.mini { width: 120px; padding:6px 8px; border:1px solid #ccc; border-radius:6px; }
+      input.title { width: 100%; min-width: 240px; }
+      .rowBtns { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+      .rowBtns .btn { padding:4px 8px; font-size:12px; } /* keeps 2 buttons comfortable */
+      .num { text-align:right; }
+      .actions { display:flex; gap:8px; flex-wrap: wrap; margin: 12px 0 8px; }
+      .hidden { display:none !important; }
+      .sep { flex-basis:100%; height:0; }
+      /* === Busy overlay & spinner === */
+      .busy-overlay{position:fixed;inset:0;background:rgba(255,255,255,.6);
+        backdrop-filter:saturate(180%) blur(2px);display:none;align-items:center;
+        justify-content:center;z-index:9999}
+      .busy-overlay.show{display:flex}
+      .spinner{width:28px;height:28px;border-radius:50%;border:3px solid #ddd;
+        border-top-color:#3b82f6;animation:spin .8s linear infinite}
+      @keyframes spin{to{transform:rotate(360deg)}}
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h2>Buy Ticket</h2>
+      <div id="payout_status" class="toast" style="display:none"></div>
+
+      <div class="row" style="margin-bottom:8px;">
+        <div><div class="label">Ticket:</div><div class="value" id="h_ticket">—</div></div>
+        <div><div class="label">Estimate:</div><div class="value" id="h_est">—</div></div>
+        <div><div class="label">Seller:</div><div class="value" id="h_name">—</div></div>
+        <div><div class="label">Phone:</div><div class="value" id="h_phone">—</div></div>
+        <div><div class="label">Email:</div><div class="value" id="h_email">—</div></div>
+        <div><div class="label">Asking sell price:</div><div class="value" id="h_asking">—</div></div>
+      </div>
+
+      <!-- Quick add + Research -->
+      <div class="toolbar">
+        <div class="field" style="gap:8px; display:flex; flex-direction:row;">
+          <button id="btn_research" class="btn save" disabled>Add Item from Research</button>
+        </div>
+        <div class="field">
+          <label for="add_short">OR</label>
+        </div>
+        <div class="field">
+          <label for="add_short">Title / Short Description</label>
+          <input id="add_short" type="text" placeholder="e.g., TMNT Splinter"/>
+        </div>
+        <div class="field">
+          <label for="add_sell">Planned sell price</label>
+          <input id="add_sell" type="number" step="0.01" min="0" placeholder="e.g., 20.00"/>
+        </div>
+        <div class="field">
+          <label for="add_offer">Offer price</label>
+          <input id="add_offer" type="number" step="0.01" min="0" placeholder="e.g., 5.00"/>
+        </div>
+        
+        <div class="field" style="gap:8px; display:flex; flex-direction:row;">
+          <button id="btn_add" disabled>Add</button>
+        </div>
+      </div>
+
+      
+      <div class="paycard" style="margin-top:8px;">
+        <div class="paycard-head" style="font-weight:bold; font-size:1.5em;">Items</div>
+
+        <div id="items-toolbar" style="margin:8px 0; display:flex; gap:8px; align-items:center;">
+          <button id="btnItemsEdit" class="btn">Edit Items</button>
+          <button id="btnItemsSave" class="btn" style="display:none;" disabled>Save Items</button>
+          <button id="btnItemsCancel" class="btn ghost" style="display:none;">Cancel</button>
+        </div>
+
+        <table class="items-table">
+          <thead>
+            <tr>
+              <th>Short title (editable)</th>
+              <th style="width:140px">Planned sell</th>
+              <th style="width:140px">Offer amount</th>
+              <th style="width:140px">QTY</th>
+              <th style="width:140px">Total planned sell</th>
+              <th style="width:140px">Total offer</th>
+              <th style="width:220px">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="items">
+            <tr><td colspan="7" class="muted">No items yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <!-- === /Items section (card) === -->
+
+      <!-- Totals row (unchanged IDs) -->
+      <div id="totals" class="totals">
+        <div><span class="k">Planned total:</span> <span id="t_planned">$0.00</span></div>
+        <div>
+          <span class="k">Offer total:</span>
+          <span id="t_offer">$0.00</span>
+          <span id="t_offer_pct" class="muted">—</span>
+        </div>
+      </div>
+
+      <!-- Offer actions -->
+      <div class="actions">
+        <button id="btn_print" class="secondary">Print Offer</button>
+        <button id="btn_email" class="secondary">Email Offer</button>
+        <button id="btn_text"  class="secondary">Text Offer (SMS)</button>
+      </div>
+      
+      <!-- === Payment totals card : FULL REPLACE (left-aligned toolbar) === -->
+      <div id="pay_totals" class="paycard">
+        <div class="paycard-head" style="font-weight:bold; font-size:1.5em;">Payment Totals</div>
+
+        <!-- Left-aligned toolbar, consistent with Items -->
+        <div id="pay_toolbar" style="display:flex; gap:6px; margin:8px 0;">
+          <button id="btnPayEdit"   class="btn small">Add/Edit Payment  </button>
+          <button id="btnPaySave"   class="btn small save"  style="display:none;" disabled>Save  </button>
+          <button id="btnPayCancel" class="btn small ghost" style="display:none; background-color:red; color:white;">
+            Cancel
+          </button>        
+          <div class="item"><span class="k">Remaining balance:  </span><span id="t_balance" class="value">$0.00</span></div>
+        </div>
+        
+        <div class="paygrid">
+          <!-- Cash drawer live total (read-only span) -->
+          <div class="item" style="align-items:flex-start; flex-direction:column;">
+            <div><span class="k">Cash Drawer $:</span> <span id="t_cashdrawer" class="value">$0.00</span></div>
+            <button id="btn_payout" class="btn small save" style="display:none;">Apply a Cash Drawer Payout Amount</button>
+          </div>
+
+          <!-- Trade (edited only in Edit mode) -->
+          <div class="item">
+            <span class="k">Trade $:</span>
+            <input id="i_trade" type="number" step="0.01" min="0" class="value" style="width:110px" value="" disabled />
+          </div>
+
+          <!-- Other (edited only in Edit mode) -->
+          <div class="item">
+            <span class="k">Other Pay $:</span>
+            <input id="i_other" type="number" step="0.01" min="0" class="value" style="width:110px" value="" disabled />
+          </div>
+
+          <!-- Totals -->
+          <div class="item"><span class="k">Total paid:</span><span id="t_paid" class="value">$0.00</span></div>
+          
+        </div>
+      </div>
+      <!-- === /Payment totals card === -->
+
+      
+      <!-- NEW: Pay Ticket (green) -->
+      <!-- New workflow buttons -->
+      
+      <div class="actions" id="workflow_actions">
+        <button id="btn_ticket_paid" class="btn blue">Ticket Paid</button>
+        <button id="btn_offer_declined" class="btn orange">Offer Declined</button>
+        <button id="btn_items_picked" class="btn slate hidden">Items Picked Up</button>
+        <button id="btn_reopen" class="btn ghost hidden">Re-open Ticket</button>
+        <span class="sep"></span>
+      </div>
+
+      
+
+    </div>
+
+    <div id="toast" class="toast" style="display:none;"></div>
+
+    <script>
+      // ---------- helpers ----------
+      console.debug('[research2] boot', Object.fromEntries(new URLSearchParams(location.search)));
+      function byId(id){ return document.getElementById(id); }
+      function money(n){ if (n==null || n==='') return '$0.00'; const x=Number(n); return Number.isFinite(x) ? '$'+x.toFixed(2) : '$0.00'; }
+      function showError(msg, err){
+        const details = (err && (err.stack||err.message)) ? String(err.stack||err.message) : '';
+        console.error('[bticket] error:', msg, err || '');
+        alert(details ? (msg + '\n\nDetails:\n' + details) : msg);
+      }
+      function setActionsEnabled(enabled){
+        try { byId('btn_research').disabled = !enabled; } catch(_) {}
+        try { byId('btn_add').disabled      = !enabled; } catch(_) {}
+        try { byId('btn_payout').disabled = !enabled; } catch(_) {}
+      }
+      function showToast(text){
+        const el = byId('toast'); el.textContent = text; el.style.display = 'block';
+        clearTimeout(window.__toastTimer); window.__toastTimer = setTimeout(()=>{ el.style.display='none'; }, 1100);
+      }
+
+      function refreshBalance(){
+        const paidEl  = byId('t_paid');
+        const offerEl = byId('t_offer');
+        const outEl   = byId('t_balance');
+        if (!outEl) return;
+
+        const toNum = s => {
+          const n = Number(s); if (Number.isFinite(n)) return n;
+          const p = parseFloat(String(s||'').replace(/[^\d.-]/g,'')); 
+          return Number.isFinite(p) ? p : 0;
+        };
+
+        const paid  = toNum(paidEl ? paidEl.textContent  : 0);
+        const offer = toNum(offerEl ? offerEl.textContent : 0);
+        const bal   = offer - paid;     // per your request
+
+        outEl.textContent = money(bal);
+        // Optional: make negative balances stand out a touch (still readable)
+        outEl.style.color = bal < 0 ? '#b91c1c' : '#111';
+      }
+      
+      // === Payment totals edit/save/cancel (insert after refreshBalance) ===
+      (function initPaymentTotalsEditor(){
+        const $ = id => document.getElementById(id);
+        let editMode = false;
+        let snapshot = { trade: '', other: '' };
+
+        function setPayInputsEnabled(on){
+          const t = $('i_trade'), o = $('i_other');
+          if (t) t.disabled = !on;
+          if (o) o.disabled = !on;
+        }
+        function readNumbers(){
+          const toNum = (x) => {
+            const n = Number(x);
+            if (Number.isFinite(n)) return +(n.toFixed(2));
+            const p = parseFloat(String(x||'').replace(/[^\d.-]/g,''));
+            return Number.isFinite(p) ? +(p.toFixed(2)) : 0;
+          };
+          const t = toNum($('i_trade')?.value);
+          const o = toNum($('i_other')?.value);
+          return { trade: t, other: o };
+        }
+        function paintSnapshot(tk){
+          // Keep i_trade / i_other synced with the sheet on load/refresh
+          // (Your render code also sets these if present.) :contentReference[oaicite:11]{index=11}
+          const n = x => {
+            const v = Number(x); if (Number.isFinite(v)) return v;
+            const q = String(x==null?'':x).replace(/[^\d.-]/g,''); const r = parseFloat(q);
+            return Number.isFinite(r) ? r : 0;
+          };
+          if ($('i_trade')) $('i_trade').value = n(tk['Trade Amount'] || 0).toFixed(2);
+          if ($('i_other')) $('i_other').value = n(tk['Other Pay (zelle, cashapp, etc.)'] || 0).toFixed(2);
+        }
+
+        function setToolbar(mode){
+          editMode = mode === true;
+          setPayInputsEnabled(editMode);
+          if ($('btnPayEdit'))   $('btnPayEdit').style.display   = editMode ? 'none'  : '';
+          if ($('btnPaySave'))   $('btnPaySave').style.display   = editMode ? ''      : 'none';
+          if ($('btnPayCancel')) $('btnPayCancel').style.display = editMode ? ''      : 'none';
+          if ($('btn_payout'))   $('btn_payout').style.display   = editMode ? ''      : 'none';
+          if ($('btnPaySave'))   $('btnPaySave').disabled        = !editMode;
+
+          // When entering edit mode, show live totals immediately
+          if (editMode) recomputeLivePaidAndBalance();
+        }
+
+        // --- Live update while editing Trade/Other ---
+        function _toNumLoose(x){
+          const n = Number(x); if (Number.isFinite(n)) return +(n.toFixed(2));
+          const p = parseFloat(String(x||'').replace(/[^\d.-]/g,'')); 
+          return Number.isFinite(p) ? +(p.toFixed(2)) : 0;
+        }
+        function _readInputs(){
+          return {
+            trade: _toNumLoose(document.getElementById('i_trade')?.value),
+            other: _toNumLoose(document.getElementById('i_other')?.value),
+          };
+        }
+        function _cashFromUi(){
+          return _toNumLoose(document.getElementById('t_cashdrawer')?.textContent);
+        }
+        function recomputeLivePaidAndBalance(){
+          if (!editMode) return;
+          const { trade, other } = _readInputs();
+          const paid = _cashFromUi() + trade + other;
+          const tPaid = document.getElementById('t_paid');
+          if (tPaid) tPaid.textContent = money(paid);
+
+          
+          // keep Remaining balance in sync with Offer total
+          if (typeof refreshBalance === 'function') refreshBalance();
+        }
+        // Listen to typing/changes in both fields
+        ['i_trade','i_other'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el){
+            el.addEventListener('input',  recomputeLivePaidAndBalance);
+            el.addEventListener('change', recomputeLivePaidAndBalance);
+          }
+        });
+
+        // Wire buttons
+        if ($('btnPayEdit')) $('btnPayEdit').addEventListener('click', () => {
+          // Take a snapshot of current values (to restore on cancel)
+          const cur = readNumbers();
+          snapshot = { ...cur };
+          setToolbar(true);
+        });
+
+        if ($('btnPayCancel')) $('btnPayCancel').addEventListener('click', () => {
+          if ($('i_trade')) $('i_trade').value = (Number(snapshot.trade)||0).toFixed(2);
+          if ($('i_other')) $('i_other').value = (Number(snapshot.other)||0).toFixed(2);
+          recomputeLivePaidAndBalance();   // show restored totals/balance immediately
+          setToolbar(false);
+        });
+        if ($('btnPaySave')) $('btnPaySave').addEventListener('click', (e) => {
+          const btn = e.currentTarget;
+          const ticketId = (document.getElementById('h_ticket')?.textContent || '').trim();
+          if (!ticketId) return alert('Missing TicketID.');
+
+          const { trade, other } = readNumbers();
+
+          // Visual cue: "Saving…" and disable inputs while saving
+          setBtnBusy(btn, true, 'Saving…');
+          setPayInputsEnabled(false);
+
+          // 1) save Trade, 2) save Other, then repaint from the returned ticket
+          google.script.run
+            .withSuccessHandler(() => {
+              google.script.run
+                .withSuccessHandler((res2) => {
+                  // Use the authoritative ticket returned by setPayComponent
+                  const tk = (res2 && res2.ticket) ? res2.ticket : {};
+
+                  // Update Payment Totals numbers from the sheet
+                  const toNum = x => {
+                    const n = Number(x); if (Number.isFinite(n)) return n;
+                    const s = String(x==null?'':x).replace(/[^\d.-]/g,'');
+                    const p = parseFloat(s); return Number.isFinite(p) ? p : 0;
+                  };
+                  const moneyFmt = v => '$' + (Number(v)||0).toFixed(2);
+
+                  const cash = toNum(tk['Cash Drawer Payout Amount']);
+                  const paid = toNum(tk['Total Pay Amount']);
+
+                  const tCash = document.getElementById('t_cashdrawer');
+                  const tPaid = document.getElementById('t_paid');
+                  if (tCash) tCash.textContent = moneyFmt(cash);
+                  if (tPaid) tPaid.textContent = moneyFmt(paid);
+
+                  // Snap inputs to the canonical values and exit edit mode
+                  paintSnapshot(tk);
+                  setToolbar(false);
+
+                  // Refresh Remaining balance (depends on Offer total)
+                  if (typeof refreshBalance === 'function') refreshBalance();
+
+                  // Done UI feedback
+                  setBtnBusy(btn, false);
+                  const toast = document.getElementById('toast');
+                  if (toast){ toast.textContent = 'Payment totals saved'; toast.style.display = 'block'; setTimeout(()=>toast.style.display='none',1100); }
+                })
+                .withFailureHandler((err) => {
+                  setBtnBusy(btn, false);
+                  alert('Failed saving Other: ' + (err?.message || err));
+                  // Re-enable inputs so user can try again
+                  setToolbar(true);
+                })
+                .apiBT_recalcPayTotal(ticketId);
+            })
+            .withFailureHandler((err) => {
+              setBtnBusy(btn, false);
+              alert('Failed saving Trade: ' + (err?.message || err));
+              setToolbar(true);
+            })
+            .apiBT_setPayComponent(ticketId, 'trade', trade);
+        });
+        // Start in view mode
+        setToolbar(false);
+      })();
+
+
+      // --- Busy helpers (non-invasive) ---
+      function setBtnBusy(btn, busy, labelWhileBusy){
+        if(!btn) return;
+        if(busy){
+          btn.dataset.prevText = btn.textContent;
+          btn.disabled = true;
+          if(labelWhileBusy) btn.textContent = labelWhileBusy;
+        }else{
+          if(btn.dataset.prevText != null){
+            btn.textContent = btn.dataset.prevText;
+            delete btn.dataset.prevText;
+          }
+          btn.disabled = false;
+        }
+      }
+      function showOverlay(show){
+        const ov = document.getElementById('busy_overlay');
+        if(ov) ov.classList.toggle('show', !!show);
+        const sr = document.getElementById('sr_status');
+        if(sr) sr.textContent = show ? 'Working' : '';
+      }
+      // Small wrapper for async actions using google.script.run
+      function runWithBusy(btn, label, runner, useOverlay){
+        setBtnBusy(btn, true, label); if(useOverlay) showOverlay(true);
+        runner(
+          () => { setBtnBusy(btn,false); if(useOverlay) showOverlay(false); },
+          (err) => { setBtnBusy(btn,false); if(useOverlay) showOverlay(false); }
+        );
+      }
+
+      const num = v => Number(v);
+
+      // --- NEW: recompute toolbar totals from unit prices & qty ---
+      function recalcToolbarTotals(){
+        const qEl = byId('add_qty');
+        const psEl = byId('add_sell');
+        const ofEl = byId('add_offer');
+        const tPsEl = byId('add_total_sell');
+        const tOfEl = byId('add_total_offer');
+
+        if (!qEl || !psEl || !ofEl || !tPsEl || !tOfEl) return;
+
+        const qty = Math.max(1, Math.floor(Number(qEl.value || 1)));
+        const planned = Number(psEl.value);
+        const offer   = Number(ofEl.value);
+
+        const tp = (Number.isFinite(planned) ? planned : 0) * qty;
+        const to = (Number.isFinite(offer)   ? offer   : 0) * qty;
+
+        tPsEl.value = Number.isFinite(tp) ? tp.toFixed(2) : '';
+        tOfEl.value = Number.isFinite(to) ? to.toFixed(2) : '';
+      }
+
+      // ---------- state ----------
+      let gItems = [];
+      let gUiState = 'default'; // 'default' | 'paid' | 'declined'
+      const saveTimers = new Map();
+      const saveEpoch  = new Map();
+      const saving     = new Set();
+
+      // ---------- header + totals ----------
+      function renderHeader(t){
+        byId('h_ticket').textContent = t.TicketID   || '';
+        byId('h_est').textContent    = t.EstimateID || '';
+        byId('h_name').textContent   = t.SellerName || '';
+        byId('h_phone').textContent  = t.SellerPhone|| '';
+        byId('h_email').textContent  = t.SellerEmail|| '';
+        byId('h_asking').textContent = money(t.AskingSell);
+      }
+      function calcTotals(items){
+        let p=0, o=0;
+        (items||[]).forEach(it => {
+          // prefer row totals; fallback to unit * qty; fallback to unit
+          const qty = Number(it.Qty) || 1;
+          const plannedRow = (it.Total_Planned_Sell != null && it.Total_Planned_Sell !== '')
+            ? Number(it.Total_Planned_Sell)
+            : (Number(it.PlannedSell) || 0) * qty;
+          const offerRow = (it.Total_Offer != null && it.Total_Offer !== '')
+            ? Number(it.Total_Offer)
+            : (Number(it.OfferAmount) || 0) * qty;
+
+          if (Number.isFinite(plannedRow)) p += plannedRow;
+          if (Number.isFinite(offerRow))   o += offerRow;
+        });
+        return { planned:p, offer:o };
+      }
+      
+      function calcTotalsFromDOM(){
+        let p = 0, o = 0;
+        const rows = document.querySelectorAll('#items tr[data-item-id]');
+        rows.forEach(tr => {
+          const pVal = Number(tr.querySelector('input.planned')?.value);
+          const oVal = Number(tr.querySelector('input.offer')?.value);
+          const qRaw = tr.querySelector('input.qty')?.value;
+          const q    = Math.max(1, Math.floor(Number(qRaw || 1)));
+          const ps = Number.isFinite(pVal) ? pVal : 0;
+          const of = Number.isFinite(oVal) ? oVal : 0;
+          p += ps * q;
+          o += of * q;
+        });
+        return { planned: p, offer: o };
+      }
+
+      function updateTotals(){
+        // Live totals while editing; fall back to model totals otherwise
+         const t = (gEditMode === true) ? calcTotalsFromDOM() : calcTotals(gItems);
+
+        byId('t_planned').textContent = money(t.planned);
+        byId('t_offer').textContent   = money(t.offer);
+
+        const pctEl = byId('t_offer_pct');
+
+        // Keep Remaining balance in sync with Offer total
+        refreshBalance();
+
+        if (pctEl) {
+          if (t.planned > 0) {
+            const pct = Math.round((t.offer / t.planned) * 100);
+            pctEl.textContent = pct + '%';
+          } else {
+            pctEl.textContent = '—';
+          }
+        }
+      }
+
+      // ---------- UI state machine (visibility only) ----------
+      function setRowIntakeButtonsVisible(visible){
+        const rows = document.querySelectorAll('#items tr');
+        rows.forEach(tr => {
+          const inBtn  = tr.querySelector('.btn.intake');
+          const dnBtn  = tr.querySelector('.btn.dont-intake');
+          if (inBtn) inBtn.classList.toggle('hidden', !visible);
+          if (dnBtn) dnBtn.classList.toggle('hidden', !visible);
+        });
+      }
+
+      function applyUiState(mode){
+        gUiState = mode || 'default';
+
+        const show = (el, yes) => el && el.classList.toggle('hidden', !yes);
+        
+        // Top-level buttons
+        const payTicketBtn   = byId('btn_payout');         // existing
+        const paidBtn        = byId('btn_ticket_paid');
+        const declinedBtn    = byId('btn_offer_declined');
+        const pickedBtn      = byId('btn_items_picked');
+        const reopenBtn      = byId('btn_reopen');
+
+        if (gUiState === 'paid'){
+          // 1A–1D
+          show(payTicketBtn, false);     // hide existing Pay Ticket
+          show(declinedBtn, false);      // hide Offer Declined
+          show(pickedBtn, false);        // hide Items Picked Up
+          setRowIntakeButtonsVisible(true); // show Intake/Don't Intake per line
+          show(paidBtn, false);           // keep Ticket Paid visible (per spec)
+          show(reopenBtn, true);         // allow re-open after paid action (hidden by default; now visible)
+        } else if (gUiState === 'declined'){
+          // 2A–2D (+2E default load behavior handled by caller)
+          show(payTicketBtn, false);     // hide existing Pay Ticket
+          show(declinedBtn, false);      // hide Offer Declined
+          show(pickedBtn, true);         // show Items Picked Up
+          setRowIntakeButtonsVisible(false); // hide per-line Intake buttons
+          show(paidBtn, false);           // Ticket Paid remains visible
+          show(reopenBtn, true);         // can re-open from declined state
+        } else if (gUiState === 'picked_up'){
+          // Only "Re-open Ticket" visible; everything else hidden
+          show(payTicketBtn, false);     // Pay Ticket
+          show(paidBtn, false);          // Ticket Paid
+          show(declinedBtn, false);      // Offer Declined
+          show(pickedBtn, false);        // Items Picked Up
+          setRowIntakeButtonsVisible(false); // Hide per-line Intake/Don't Intake
+          show(reopenBtn, true);         // Re-open Ticket  
+        } else {
+          // default (fresh load)
+          show(payTicketBtn, true);      // existing Pay Ticket present by default (as in your file)
+          show(paidBtn, true);           // Ticket Paid visible
+          show(declinedBtn, true);       // Offer Declined visible
+          show(pickedBtn, false);        // Items Picked Up hidden
+          show(reopenBtn, false);        // Re-open hidden
+          setRowIntakeButtonsVisible(false); // per-line buttons hidden
+        }
+      }
+
+
+
+
+      // ---------- save logic (row-scoped, conflict-safe) ----------
+      function doSave(itemId, patch, saveBtn, clearDirty, epoch){
+        const ticketId = byId('h_ticket').textContent || '';
+        if (!ticketId || !itemId) return;
+
+        // client-side validation: planned >= offer
+        const p = Number(patch.plannedSell), o = Number(patch.offerAmount);
+        if (Number.isFinite(p) && Number.isFinite(o) && o > p) {
+          showError('Offer cannot exceed the planned sell amount.');
+          if (saveBtn) saveBtn.disabled = false;
+          return;
+        }
+
+        if (saving.has(itemId)) {
+          clearTimeout(saveTimers.get(itemId));
+          const t = setTimeout(() => doSave(itemId, patch, saveBtn, clearDirty, (saveEpoch.get(itemId)||0)+1), 200);
+          saveTimers.set(itemId, t);
+          return;
+        }
+
+        saving.add(itemId);
+        if (saveBtn) saveBtn.disabled = true;
+
+        // Lock this row's inputs while saving
+        const row = document.querySelector(`tr[data-item-id="${itemId}"]`);
+        const toLock = row ? row.querySelectorAll('input.title, input.planned, input.offer, input.qty') : [];
+        toLock.forEach(el => el.disabled = true);
+
+        google.script.run
+          .withSuccessHandler(res => {
+            saving.delete(itemId);
+            // Unlock row inputs now that the save finished
+            if (toLock && toLock.forEach) toLock.forEach(el => el.disabled = false);
+            if (!res || res.ok !== true) return showError('Server returned an error.', res);
+
+            const currentEpoch = saveEpoch.get(itemId) || 0;
+            if (epoch != null && epoch < currentEpoch) return; // stale
+
+            const serverItem = (res.items || []).find(x => x.ItemID === itemId);
+            if (serverItem) {
+              const ix = gItems.findIndex(x => x.ItemID === itemId);
+              if (ix >= 0) gItems[ix] = {...serverItem};
+              const row = document.querySelector(`tr[data-item-id="${itemId}"]`);
+              if (row) {
+                row.querySelector('input.title').value = serverItem.ShortTitle || '';
+                row.querySelector('input.planned').value = Number(serverItem.PlannedSell||0);
+                row.querySelector('input.offer').value   = Number(serverItem.OfferAmount||0);
+
+                // NEW: refresh Qty and computed totals from the server
+                const qEl   = row.querySelector('input.qty');
+                const tpsEl = row.querySelector('.tps');
+                const tofEl = row.querySelector('.tof');
+
+                if (qEl) qEl.value = Number(serverItem.Qty || 1);
+
+                if (tpsEl) {
+                  const ps  = Number(serverItem.PlannedSell || 0);
+                  const q   = Number(serverItem.Qty || 1);
+                  const tps = (serverItem.Total_Planned_Sell != null && serverItem.Total_Planned_Sell !== '')
+                                ? Number(serverItem.Total_Planned_Sell)
+                                : ps * q;
+                  tpsEl.textContent = money(Number.isFinite(tps) ? tps : 0);
+                }
+                if (tofEl) {
+                  const of  = Number(serverItem.OfferAmount || 0);
+                  const q   = Number(serverItem.Qty || 1);
+                  const tof = (serverItem.Total_Offer != null && serverItem.Total_Offer !== '')
+                                ? Number(serverItem.Total_Offer)
+                                : of * q;
+                  tofEl.textContent = money(Number.isFinite(tof) ? tof : 0);
+                }
+
+                const err = row.querySelector('.err'); if (err) err.style.display = 'none';
+                const dirty = row.querySelector('.dirtyFlag'); if (dirty) dirty.style.display = 'none';
+                const save = row.querySelector('.save'); if (save) save.disabled = true;
+              }
+            }
+            
+            updateTotals();
+            if (saveBtn) setBtnBusy(saveBtn, false);
+            showToast('Saved');
+
+          })
+          .withFailureHandler(err => {
+            saving.delete(itemId);
+            if (toLock && toLock.forEach) toLock.forEach(el => el.disabled = false);
+            if (saveBtn) saveBtn.disabled = false;
+            showError('Save failed.', err);
+          })
+          .apiBT_updateItem(ticketId, itemId, patch);
+      }
+
+      function rowTemplate(it){
+        const tr = document.createElement('tr');
+        tr.dataset.itemId = it.ItemID || '';
+        // inside rowTemplate(it)
+         tr.innerHTML = [
+          
+         '<td>',
+            '<input class="title" type="text" value="', String(it.ShortTitle||'').replace(/"/g,'&quot;') ,'" />',
+            
+            '<span class="err">Offer cannot exceed planned</span>',
+          '</td>',
+          '<td class="num"><input class="mini planned" type="number" step="0.01" min="0" value="', Number(it.PlannedSell||0) ,'" /></td>',
+          '<td class="num"><input class="mini offer"   type="number" step="0.01" min="0" value="', Number(it.OfferAmount||0) ,'" /></td>',
+          '<td class="num"><input class="mini qty" type="number" step="1" min="1" value="', Number(it.Qty || 1) ,'" /></td>',  
+          '<td class="num"><span class="value tps">$0.00</span></td>',
+          '<td class="num"><span class="value tof">$0.00</span></td>',
+          '<td class="rowBtns">',
+            
+            '<button class="btn small danger remove">Remove</button>',
+            '<button class="btn small intake hidden">Intake</button>',
+            '<button class="btn small dont-intake hidden">Don’t Intake</button>',
+          '</td>'
+        ].join('');
+
+
+        const title   = tr.querySelector('input.title');
+        const planned = tr.querySelector('input.planned');
+        const offer   = tr.querySelector('input.offer');
+        const dirty   = tr.querySelector('.dirtyFlag');
+        const errEl   = tr.querySelector('.err');
+        const qtyInput = tr.querySelector('input.qty'); // moved up so the IIFE can use it
+        
+        // --- Live math (row + page totals) while editing; no server calls ---
+        (function initLiveRowMath(){
+          const tpsEl = tr.querySelector('.tps'); // Total planned sell (span)
+          const tofEl = tr.querySelector('.tof'); // Total offer (span)
+          const errEl = tr.querySelector('.err'); // inline error span (already in your row)
+
+          const toNum = (x) => {
+            const n = Number(x); if (Number.isFinite(n)) return n;
+            const s = String(x == null ? '' : x).replace(/[^\d.-]/g,'');
+            const p = parseFloat(s); return Number.isFinite(p) ? p : 0;
+          };
+
+          function recalcLiveRow(){
+            // 1) Read current input values
+            const p = toNum(planned && planned.value);
+            const o = toNum(offer   && offer.value);
+            const q = Math.max(1, Math.floor(toNum(qtyInput && qtyInput.value)));
+
+            // 2) Per-row totals (UI only)
+            if (tpsEl) tpsEl.textContent = typeof money === 'function' ? money(p * q) : (p * q).toFixed(2);
+            if (tofEl) tofEl.textContent = typeof money === 'function' ? money(o * q) : (o * q).toFixed(2);
+
+            // 3) Inline validation (don’t block typing)
+            const bad = Number.isFinite(p) && Number.isFinite(o) && o > p;
+            if (errEl) errEl.style.display = bad ? 'inline' : 'none';
+
+            // 4) Update in-memory model so page totals compute correctly
+            try {
+              const id = String(tr.dataset.itemId || '');
+              const ix = Array.isArray(window.gItems) ? gItems.findIndex(x => String(x.ItemID) === id) : -1;
+              if (ix >= 0) {
+                const row = Object.assign({}, gItems[ix]);
+                row.PlannedSell = p;
+                row.OfferAmount = o;
+                row.Qty = q;
+                row.Total_Planned_Sell = +(p * q).toFixed(2);
+                row.Total_Offer        = +(o * q).toFixed(2);
+                gItems[ix] = row;
+              }
+            } catch(_){ /* non-fatal */ }
+
+            // 5) Refresh page-level totals (Planned total, Offer total, Remaining balance)
+            if (typeof updateTotals === 'function') updateTotals();
+          }
+
+          // Wire inputs for live math while editing (no autosave)
+          [planned, offer, qtyInput].forEach(inp => {
+            if (!inp) return;
+            inp.addEventListener('input',  recalcLiveRow);
+            inp.addEventListener('change', recalcLiveRow); // covers mouse wheel/steppers
+          });
+
+          // Paint once for initial render of this row
+          recalcLiveRow();
+        })();
+
+
+        const rmBtn   = tr.querySelector('.remove');
+        // NEW: per-row inputs we also need
+        const tPlanned = tr.querySelector('.tps');
+        const tOffer   = tr.querySelector('.tof');
+
+        // NEW: recompute per-row totals from current inputs (Qty defaults to 1)
+        function updateRowTotals(){
+          const qty = Math.max(1, Math.floor(Number(qtyInput && qtyInput.value || it.Qty || 1)));
+          const ps  = Number(planned.value);
+          const of  = Number(offer.value);
+          const tp  = (Number.isFinite(ps) ? ps : 0) * qty;
+          const to  = (Number.isFinite(of) ? of : 0) * qty;
+          if (tPlanned) tPlanned.textContent = money(Number.isFinite(tp) ? tp : 0);
+          if (tOffer)   tOffer.textContent   = money(Number.isFinite(to) ? to : 0);
+        }
+
+        // Initialize their values from data (prefer sheet totals; fallback to unit × qty)
+        (function initRowTotals(){
+          const qty = Math.max(1, Math.floor(Number(qtyInput && qtyInput.value || it.Qty || 1)));
+          const tp  = (it.Total_Planned_Sell != null && it.Total_Planned_Sell !== '')
+                        ? Number(it.Total_Planned_Sell)
+                        : (Number(it.PlannedSell)||0) * qty;
+          const to  = (it.Total_Offer != null && it.Total_Offer !== '')
+                        ? Number(it.Total_Offer)
+                        : (Number(it.OfferAmount)||0) * qty;
+          if (tPlanned && Number.isFinite(tp)) tPlanned.textContent = money(tp);
+          if (tOffer   && Number.isFinite(to)) tOffer.textContent   = money(to);
+        })();
+
+        // ---- real Intake handoff (Buy Ticket → Intake) ----
+        const intakeBtn = tr.querySelector('.intake');
+        const dontBtn   = tr.querySelector('.dont-intake');
+
+        // Build a fresh seed from the current row (inputs win over original item)
+        function buildBtIntakeSeed() {
+          const name = (title.value || it.ShortTitle || '').trim();
+          const price = Number.isFinite(Number(planned.value))
+            ? Number(planned.value)
+            : Number(it.PlannedSell || 0);
+          const longDesc = String(it.LongDesc || ''); // server includes LongDesc; keep empty if not present
+          const itemId = tr.dataset.itemId || '';
+          const ticket = (byId('h_ticket')?.textContent || '').trim();
+          const qty = Math.max(1, Math.floor(Number(qtyInput && qtyInput.value || it.Qty || 1)));
+
+          return {
+            name,
+            price,
+            longDesc,
+            itemId,
+            ticket,
+            // NEW: carry the Offer Amount to Intake
+            offer: Number.isFinite(Number(offer.value))
+              ? Number(offer.value)
+              : Number(it.OfferAmount || 0),
+            // NEW:
+            qty
+            
+              
+          };
+        }
+
+        if (intakeBtn) intakeBtn.addEventListener('click', () => {
+          try {
+            // Optional preflight: block navigation if already in inventory
+            const id = tr.dataset.itemId || '';
+            if (window.__BT_INVENTORY_MAP && window.__BT_INVENTORY_MAP[id] && window.__BT_INVENTORY_MAP[id].sku) {
+              const s = window.__BT_INVENTORY_MAP[id].sku;
+              showToast(`Already in inventory as ${s}`);
+              return;
+            }
+
+            const seed = buildBtIntakeSeed();
+            // Stash seed + autoload flag so Intake can prefill on load
+            sessionStorage.setItem('mrad_bt_intake_seed', JSON.stringify(seed));
+            sessionStorage.setItem('mrad_autoload_bt_intake', '1');
+            // Also persist the specific ids for submit-side safety
+            sessionStorage.setItem('mrad_bt_item_id', seed.itemId || '');
+            sessionStorage.setItem('mrad_bt_ticket', seed.ticket || '');
+
+            // Navigate (same pattern as gotoResearch / gotoPayout)
+            const t = seed.ticket;
+            if (!t) return showError('Missing TicketID for Intake navigation.');
+
+            const params = new URLSearchParams({ page: 'intake', from: 'bt', ticket: t, seed: '1' });
+            const base = (window.MADRAD_EXEC_URL || "<?= execUrl ?>").replace(/\/+$/,'');
+            const url  = base + '?' + params.toString();
+
+            showOverlay(true);
+            (window.top || window).location.href = url;
+          } catch (e) {
+            showError('Could not open Intake.', e);
+          }
+        });
+
+        // Optional: simple “Don’t Intake” action (no-op toast for now)
+        if (dontBtn) dontBtn.addEventListener('click', () => showToast('Marked: Don’t Intake (no changes saved)'));
+
+        
+        function reflect(){
+          const id = tr.dataset.itemId;
+          const ix = gItems.findIndex(x => x.ItemID === id);
+          if (ix >= 0){
+            gItems[ix].ShortTitle  = title.value || '';
+            gItems[ix].PlannedSell = Number(planned.value) || 0;
+            gItems[ix].OfferAmount = Number(offer.value)   || 0;
+            // NEW: keep gItems in sync with the edited Qty
+            gItems[ix].Qty = Math.max(1, Math.floor(Number(qtyInput && qtyInput.value || 1)));
+            // NEW: clear cached totals so calcTotals() uses unit×qty until saved
+            gItems[ix].Total_Planned_Sell = '';
+            gItems[ix].Total_Offer        = '';
+          }
+          updateTotals();
+        }
+
+        const patchBuilder = () => ({
+          shortTitle:  title.value || '',
+          plannedSell: Number(planned.value),
+          offerAmount: Number(offer.value),
+          // NEW:
+          qty: Math.max(1, Math.floor(Number(qtyInput && qtyInput.value || 1)))
+        });
+
+        function validateInline(){
+          const p = Number(planned.value), o = Number(offer.value);
+          const bad = Number.isFinite(p) && Number.isFinite(o) && o > p;
+          errEl.style.display = bad ? 'inline' : 'none';
+          return !bad;
+        }
+
+        function doSaveAutosafe(){
+          if (!validateInline()) return; // block save
+          const id = tr.dataset.itemId;
+          const next = (saveEpoch.get(id) || 0) + 1;
+          saveEpoch.set(id, next);
+          doSave(id, patchBuilder(), saveBtn, clearDirty, next);
+        }
+
+        function doRemove(){
+          const ticketId = byId('h_ticket').textContent || '';
+          const itemId = tr.dataset.itemId || '';
+          if (!ticketId || !itemId) return;
+          if (!confirm('Remove this item from the ticket?')) return;
+
+          showOverlay(true);
+          rmBtn.disabled = true;
+          google.script.run
+            .withSuccessHandler(res => {
+              const t = ticketId;
+              showOverlay(false);
+              if (!res || res.ok !== true) {
+                rmBtn.disabled = false;
+                return showError('Server returned an error.', res);
+              }
+              // Full, consistent repaint (header, items, totals, intake locks, etc.)
+              loadTicket(t);
+              showToast('Item removed');
+            })
+            .withFailureHandler(err => { showOverlay(false); rmBtn.disabled = false; showError('Remove failed.', err); })
+            .apiBT_removeItem(ticketId, itemId);
+        }
+
+                
+        rmBtn.addEventListener('click', doRemove);
+        // Ensure default disabled state on freshly rendered rows
+        if (!gEditMode) {
+          tr.querySelectorAll('input.title, input.planned, input.offer, input.qty').forEach(inp => {
+            inp.disabled = true; inp.style.opacity = '0.75'; inp.title = 'Click “Edit Items” to modify';
+          });
+        }
+        return tr;
+      }
+
+      /* === Items edit-mode state & helpers === */
+      let gEditMode = false;                   // are we editing items right now?
+      let gOriginal = new Map();               // snapshot of items when entering edit mode
+      let gDirty    = new Map();               // itemId -> { shortTitle?, plannedSell?, offerAmount?, qty? }
+
+      function currentTicketId(){
+        const el = document.getElementById('h_ticket');
+        return el ? String(el.textContent || '').trim() : '';
+      }
+
+      function setItemsEditable(on){
+        const sel = '#items input.title, #items input.planned, #items input.offer, #items input.qty';
+        document.querySelectorAll(sel).forEach(inp => {
+          inp.disabled = !on;
+          inp.style.opacity = on ? '' : '0.75';
+          inp.title = on ? '' : 'Click “Edit Items” to modify';
+        });
+      }
+
+      function snapshotOriginalFromItems(){
+        gOriginal.clear();
+        // prefer gItems if present; otherwise read from DOM
+        if (Array.isArray(window.gItems)) {
+          for (const it of gItems) {
+            gOriginal.set(String(it.ItemID), {
+              shortTitle: String(it.ShortTitle || ''),
+              plannedSell: Number(it.PlannedSell || 0),
+              offerAmount: Number(it.OfferAmount || 0),
+              qty: Math.max(1, Number(it.Qty || 1)),
+            });
+          }
+        } else {
+          document.querySelectorAll('#items tr[data-item-id]').forEach(tr => {
+            const id = String(tr.dataset.itemId);
+            gOriginal.set(id, {
+              shortTitle: tr.querySelector('input.title')?.value || '',
+              plannedSell: Number(tr.querySelector('input.planned')?.value || 0),
+              offerAmount: Number(tr.querySelector('input.offer')?.value   || 0),
+              qty: Math.max(1, Number(tr.querySelector('input.qty')?.value || 1)),
+            });
+          });
+        }
+      }
+
+      function flagDirty(tr, fieldKey){
+        const id = String(tr.dataset.itemId || '');
+        if (!id || !fieldKey) return;
+        const rec = gDirty.get(id) || {};
+        rec[fieldKey] = true;
+        gDirty.set(id, rec);
+
+        const btnSave = document.getElementById('btnItemsSave');
+        if (btnSave) btnSave.disabled = false;
+      }
+
+      function buildPatchesFromDirtyDOM(){
+        const patches = [];
+        const toNum = (x) => {
+          const n = Number(x); if (Number.isFinite(n)) return n;
+          const s = String(x==null?'':x).replace(/[^\d.-]/g,'');
+          const p = parseFloat(s); return Number.isFinite(p) ? p : 0;
+        };
+        document.querySelectorAll('#items tr[data-item-id]').forEach(tr => {
+          const id = String(tr.dataset.itemId);
+          const o = gOriginal.get(id);
+          if (!o) return;
+          const titleEl = tr.querySelector('input.title');
+          const pEl = tr.querySelector('input.planned');
+          const oEl = tr.querySelector('input.offer');
+          const qEl = tr.querySelector('input.qty');
+
+          const patch = { itemId: id };
+          let changed = false;
+
+          const tNow = titleEl ? String(titleEl.value || '') : '';
+          if (tNow !== o.shortTitle) { patch.shortTitle = tNow; changed = true; }
+
+          const pNow = pEl ? toNum(pEl.value) : 0;
+          if (pNow !== o.plannedSell) { patch.plannedSell = pNow; changed = true; }
+
+          const ofNow = oEl ? toNum(oEl.value) : 0;
+          if (ofNow !== o.offerAmount) { patch.offerAmount = ofNow; changed = true; }
+
+          const qNow = qEl ? Math.max(1, Math.floor(toNum(qEl.value))) : 1;
+          if (qNow !== o.qty) { patch.qty = qNow; changed = true; }
+
+          if (changed) patches.push(patch);
+        });
+        return patches;
+      }
+
+      function validatePatches(patches){
+        // highlight any invalid rows; block save on first error
+        for (const p of patches){
+          const tr = document.querySelector(`#items tr[data-item-id="${p.itemId}"]`);
+          const err = tr?.querySelector('.err');
+          const planned = (p.plannedSell != null) ? Number(p.plannedSell) : Number(tr?.querySelector('input.planned')?.value || 0);
+          const offer   = (p.offerAmount != null) ? Number(p.offerAmount) : Number(tr?.querySelector('input.offer')?.value   || 0);
+          const qty     = (p.qty != null)         ? Number(p.qty)         : Number(tr?.querySelector('input.qty')?.value     || 1);
+
+          const invalid = (Number.isFinite(planned) && Number.isFinite(offer) && offer > planned) || (qty < 1);
+          if (err) err.style.display = invalid ? 'inline' : 'none';
+          if (invalid) { tr?.scrollIntoView({block:'center'}); tr?.querySelector('.offer,.planned,.qty')?.focus(); return false; }
+        }
+        return true;
+      }
+
+      function enterEditMode(){
+        gEditMode = true;
+         window.gEditMode = true;
+        snapshotOriginalFromItems();
+        gDirty.clear();
+        setItemsEditable(true);
+        setActionsEnabled(false); // disable Add row / extras while editing
+
+        const e = document.getElementById('btnItemsEdit');
+        const s = document.getElementById('btnItemsSave');
+        const c = document.getElementById('btnItemsCancel');
+        if (e) e.style.display = 'none';
+        if (s) { s.style.display = ''; s.disabled = false; }  // show & ENABLE Save
+        if (c) c.style.display = '';
+      }
+
+      function exitEditMode(saved){
+        gEditMode = false;
+        window.gEditMode = false;
+        gDirty.clear();
+        setItemsEditable(false);
+        setActionsEnabled(true);
+
+        const e = document.getElementById('btnItemsEdit');
+        const s = document.getElementById('btnItemsSave');
+        const c = document.getElementById('btnItemsCancel');
+        if (e) e.style.display = '';
+        if (s) { s.style.display = 'none'; s.disabled = true; }
+        if (c) c.style.display = 'none';
+
+        if (saved === false){
+          const tid = currentTicketId();
+          if (tid) loadTicket(tid); // discard edits by reloading
+        }
+      }
+
+      
+      // Wire the toolbar buttons once DOM is ready
+      document.addEventListener('DOMContentLoaded', () => {
+        const btnE = document.getElementById('btnItemsEdit');
+        const btnS = document.getElementById('btnItemsSave');
+        const btnC = document.getElementById('btnItemsCancel');
+        if (btnE) btnE.addEventListener('click', enterEditMode);
+        if (btnC) btnC.addEventListener('click', () => exitEditMode(false));
+        if (btnS) btnS.addEventListener('click', () => {
+          const patches = buildPatchesFromDirtyDOM();
+          if (!patches.length){ showToast('No changes to save'); exitEditMode(true); return; }
+          if (!validatePatches(patches)) return;
+
+          // Lock the grid during save
+          setItemsEditable(false);
+          btnS.disabled = true;
+          const btnC = document.getElementById('btnItemsCancel'); if (btnC) btnC.disabled = true;
+
+          setBtnBusy(btnS, true, 'Saving…');
+
+          const tid = currentTicketId();
+          google.script.run
+            .withSuccessHandler(res => {
+              setBtnBusy(btnS, false);
+              if (!res || res.ok !== true) {
+                setItemsEditable(true);
+                if (btnC) btnC.disabled = false;
+                btnS.disabled = false;
+                return showError('Save failed.', res);
+              }
+              // Render items returned by the bulk API; hide removed items
+              renderItems((res.items || []).filter(x => !x.RemovedAt));
+              updateTotals();
+              exitEditMode(true);
+              showToast('Items saved');
+            })
+            .withFailureHandler(err => {
+              setBtnBusy(btnS, false);
+              setItemsEditable(true);
+              if (btnC) btnC.disabled = false;
+              btnS.disabled = false;
+              showError('Save failed.', err);
+            })
+            .apiBT_updateItemsBulk(tid, patches);
+        });
+      });
+
+      function renderItems(items){
+        // Hide removed items in the UI (server keeps history)
+        const visible = (items || []).filter(x => !x.RemovedAt);
+        gItems = visible.map(x => Object.assign({}, x));
+        const tbody = byId('items');
+        tbody.innerHTML = '';
+        if (!gItems.length) {
+          const tr = document.createElement('tr');
+          tr.innerHTML = '<td colspan="7" class="muted">No items yet.</td>';
+          tbody.appendChild(tr);
+          updateTotals();
+          // still ensure row buttons reflect current UI state (no rows present)
+          return;
+        }
+        gItems.forEach(it => tbody.appendChild(rowTemplate(it)));
+        updateTotals();
+
+        // Apply current UI state's per-row visibility after rendering
+        setRowIntakeButtonsVisible(gUiState === 'paid');
+
+        // NEW: after rows are painted, resolve which ones are already in inventory
+        refreshIntakeLocks();
+        const btnS = document.getElementById('btnItemsSave');
+        // If we’re editing, keep Save enabled; otherwise keep it disabled/hidden
+        if (btnS) btnS.disabled = !gEditMode;
+
+        // Keep inputs disabled/enabled according to current edit-mode
+        if (typeof setItemsEditable === 'function') setItemsEditable(gEditMode);
+
+        
+
+        // Recompute page totals after any re-render (fresh DOM + gItems)
+        if (typeof updateTotals === 'function') updateTotals();
+      }
+
+      // === Batch check SKU Tracker by Buy_Ticket_ITEM_ID and lock rows ===
+      function refreshIntakeLocks(){
+        try{
+          const rows = Array.from(document.querySelectorAll('#items tr[data-item-id]'));
+          if (!rows.length) return;
+
+          const ids = rows.map(tr => tr.dataset.itemId).filter(Boolean);
+          // Avoid repeated lookups if same set (simple short cache)
+          const key = 'ids:' + ids.sort().join(',');
+          if (window.__BT_LAST_LOOKUP_KEY === key && window.__BT_INVENTORY_MAP) {
+            applyInventoryMap(window.__BT_INVENTORY_MAP);
+            return;
+          }
+
+          google.script.run
+            .withSuccessHandler(map => {
+              // map like: { "<ItemID>": { sku, duplicate } }
+              window.__BT_LAST_LOOKUP_KEY = key;
+              window.__BT_INVENTORY_MAP = map || {};
+              applyInventoryMap(window.__BT_INVENTORY_MAP);
+            })
+            .withFailureHandler(err => {
+              console.warn('[bticket] SKU lookup failed', err);
+            })
+            .apiSku_FindByBuyTicketItemIds(ids);
+        }catch(e){
+          console.warn('[bticket] refreshIntakeLocks error', e);
+        }
+      }
+
+      function applyInventoryMap(map){
+        const rows = Array.from(document.querySelectorAll('#items tr[data-item-id]'));
+        rows.forEach(tr => {
+          const id = tr.dataset.itemId;
+          const info = map && map[id];
+          const inBtn  = tr.querySelector('.btn.intake');
+          const dnBtn  = tr.querySelector('.btn.dont-intake');
+
+          // Remove any old badge
+          let badge = tr.querySelector('.inv-badge');
+          if (badge) badge.remove();
+
+          if (info && info.sku){
+            // Disable intake/don’t-intake
+            if (inBtn) inBtn.disabled = true, inBtn.classList.add('hidden');
+            if (dnBtn) dnBtn.disabled = true, dnBtn.classList.add('hidden');
+
+            // Show a small neutral badge
+            badge = document.createElement('span');
+            badge.className = 'inv-badge muted';
+            badge.style.marginLeft = '6px';
+            badge.textContent = info.duplicate ? `⚠︎ In Inventory: ${info.sku} (+ dupes)` : `✅ In Inventory: ${info.sku}`;
+
+            const btnCell = tr.querySelector('.rowBtns');
+            if (btnCell) btnCell.appendChild(badge);
+          } else {
+            // No entry found → keep normal buttons governed by UI state
+            if (inBtn) inBtn.disabled = false;
+            if (dnBtn) dnBtn.disabled = false;
+          }
+        });
+      }
+
+      // ---------- server I/O ----------
+      function loadTicket(ticketId){
+        console.debug('[bticket] loadTicket start', ticketId);
+        showOverlay(true);
+        setActionsEnabled(false);
+        google.script.run
+          .withSuccessHandler(res => {
+            showOverlay(false);                   // NEW: hide overlay on success
+            console.debug('[bticket] server responded');
+
+            if (res && Array.isArray(res._logs) && res._logs.length) {
+              console.groupCollapsed('[apiBT_getTicket server logs]');
+              res._logs.forEach(l => console.debug(l));
+              console.groupEnd();
+            }
+
+            if (!res || res.ok !== true) {
+              showError('Server returned an error object.', res);
+              return;
+            }
+
+            renderHeader(res.ticket || {});
+            renderItems(res.items  || []);
+
+            // Paint Payment Totals (robust: populate both display spans and inputs)
+            (function(){
+              const t = (res && res.ticket) || {};
+              const toNum = s => {
+                const n = Number(s); if (Number.isFinite(n)) return n;
+                const p = parseFloat(String(s ?? '').replace(/[^\d.-]/g,'')); 
+                return Number.isFinite(p) ? p : 0;
+              };
+              const money = x => '$' + (Number(x)||0).toFixed(2);
+              const $ = id => document.getElementById(id);
+
+              const cashRaw  = t['Cash Drawer Payout Amount'];
+              const tradeRaw = t['Trade Amount'];
+              const otherRaw = t['Other Pay (zelle, cashapp, etc.)'];
+
+              // Prefer server-computed total; fallback to parts if absent/blank
+              let totalRaw = t['Total Pay Amount'];
+              if (totalRaw == null || totalRaw === '') {
+                totalRaw = toNum(cashRaw) + toNum(tradeRaw) + toNum(otherRaw);
+              }
+
+              if ($('t_cashdrawer')) $('t_cashdrawer').textContent = money(toNum(cashRaw));
+              if ($('t_paid'))       $('t_paid').textContent       = money(toNum(totalRaw));
+
+              // NEW: keep inline editors in sync on load (GUARDED)
+              if ($('i_trade') && tradeRaw != null && tradeRaw !== '' && Number.isFinite(Number(tradeRaw))) {
+                $('i_trade').value = Number(tradeRaw).toFixed(2);
+              }
+              if ($('i_other') && otherRaw != null && otherRaw !== '' && Number.isFinite(Number(otherRaw))) {
+                $('i_other').value = Number(otherRaw).toFixed(2);
+              }
+
+              // If legacy read-only spans exist, keep those updated too (harmless if missing)
+              if ($('t_trade')) $('t_trade').textContent = money(toNum(tradeRaw));
+              if ($('t_other')) $('t_other').textContent = money(toNum(otherRaw));
+
+              if (typeof refreshBalance === 'function') refreshBalance();
+            })();
+
+            console.debug('[bticket] render complete');
+
+            setActionsEnabled(true);
+
+             // Apply status-driven UI on load (source of truth = sheet)
+            (function(){
+              const raw = (res && res.ticket && res.ticket.Status) ? String(res.ticket.Status).toLowerCase() : '';
+              if (raw === 'paid')        applyUiState('paid');      // 1A–1D
+              else if (raw === 'declined') applyUiState('declined'); // 2A–2D (+2E on load)
+              else if (raw === 'picked_up') applyUiState('picked_up'); // treat closed as declined-like
+              else                        applyUiState('default');
+            })();
+
+          })
+          .withFailureHandler(err => {
+            showOverlay(false);                   // NEW: hide overlay on failure
+            console.debug('[bticket] FAILURE handler');
+            showError('Apps Script call failed.', err);
+            setActionsEnabled(false);
+          })
+          .apiBT_getTicket(ticketId);
+      }
+
+      // ---------- actions ----------
+      function currentTicketId(){ return (byId('h_ticket').textContent || '').trim(); }
+      function currentEstimateId(){ return (byId('h_est').textContent || '').trim(); }
+
+      function addItemFromForm(){
+        const ticketId = currentTicketId();
+        if (!ticketId) return showError('Missing TicketID.');
+
+        const short = (byId('add_short').value || '').trim();
+        const plannedSell = Number(byId('add_sell').value);
+        const offerAmount = Number(byId('add_offer').value);
+        const qtyRaw = byId('add_qty') ? Number(byId('add_qty').value) : 1;
+        const qty = (Number.isFinite(qtyRaw) && qtyRaw > 0) ? Math.floor(qtyRaw) : 1;
+
+        if (!short){ alert('Please enter a Title/Short Description.'); return; }
+        if (!Number.isFinite(plannedSell) || plannedSell < 0){ alert('Please enter a valid Planned sell price.'); return; }
+        if (!Number.isFinite(offerAmount) || offerAmount < 0){ alert('Please enter a valid Offer price.'); return; }
+        if (offerAmount > plannedSell){ alert('Offer cannot exceed the planned sell amount.'); return; }
+        if (!Number.isFinite(qty) || qty < 1){ alert('Qty must be at least 1.'); return; }
+
+        setBtnBusy(byId('btn_add'), true, 'Adding…');
+        showOverlay(true);
+        const payload = { shortTitle: short, plannedSell: plannedSell, offerAmount: offerAmount, qty: qty, offerSource: 'manual' };
+
+        google.script.run
+          .withSuccessHandler((res) => {
+            if (!res || res.ok !== true) return showError('Server returned an error.', res);
+            byId('add_short').value = '';
+            byId('add_sell').value = '';
+            byId('add_offer').value = '';
+            if (byId('add_qty')) byId('add_qty').value = '1';
+            if (byId('add_total_sell')) byId('add_total_sell').value = '';
+            if (byId('add_total_offer')) byId('add_total_offer').value = '';
+            renderItems(res.items || []);
+            showToast('Item added to ticket');
+            byId('btn_add').disabled = false;
+            showOverlay(false);
+            setBtnBusy(byId('btn_add'), false);
+          })
+          .withFailureHandler(err => { showOverlay(false); setBtnBusy(byId('btn_add'), false); showError('Could not add item.', err); })
+          .apiBT_addItem(ticketId, payload);
+      }
+
+      function gotoResearch(){
+        const t = currentTicketId();
+        if (!t) {
+          console.error('[bticket] gotoResearch aborted: no TicketID');
+          return showError('Missing TicketID for Research navigation.');
+        }
+
+        try { sessionStorage.setItem('mrad_nav_from_bt', '1'); } catch(_) {}
+        const params = new URLSearchParams({ page: 'research2', ticket: t, from: 'bt' });
+        const base = (window.MADRAD_EXEC_URL || "<?= execUrl ?>").replace(/\/+$/,'');
+        const url  = base + '?' + params.toString();
+
+        console.debug('[bticket] gotoResearch →', { url });
+        (window.top || window).location.href = url;
+      }
+
+      // ----- NAV → Payout (with prefill seed) -----
+      function gotoPayout(){
+        const t = currentTicketId();
+        if (!t) {
+          console.error('[bticket] gotoPayout aborted: no TicketID');
+          return showError('Missing TicketID for Payout navigation.');
+        }
+
+        // 1) Capture Seller + Offer total from the current page
+        //    - Seller is in the header (#h_name)
+        //    - Offer total is already computed from items (calcTotals(gItems).offer)
+        const seller = (byId('h_name')?.textContent || '').trim();
+
+        // Reuse your calcTotals so this stays in sync with the Items table
+        // (falls back to parsing the visible total if needed)
+        let offerTotal = 0;
+        try {
+          const totals = calcTotals(gItems || []);
+          offerTotal = Number(totals && totals.offer || 0) || 0;
+        } catch (_) {
+          const raw = (byId('t_offer')?.textContent || '').replace(/[^0-9.]/g,'');
+          offerTotal = Number(raw || 0) || 0;
+        }
+
+        // 2) Stash a prefill object so payout.html can auto-populate
+        try {
+          const seed = { ticket: t, seller, offer: offerTotal };
+          sessionStorage.setItem('mrad_bt_payout_prefill', JSON.stringify(seed));
+        } catch (_) {}
+
+        // 3) Keep your existing "return to ticket" stash (unchanged)
+        try { sessionStorage.setItem('mrad_bt_return_ticket', t); } catch(_){}
+
+        // 4) Navigate (same as before)
+        const params = new URLSearchParams({ page: 'payout', ticket: t });
+        const base   = (window.MADRAD_EXEC_URL || "<?= execUrl ?>").replace(/\/+$/,'');
+        const url    = base + '?' + params.toString();
+
+        console.debug('[bticket] gotoPayout →', { url, seed: { ticket:t, seller, offerTotal } });
+        (window.top || window).location.href = url;
+      }
+
+
+      // ----- Offer actions -----
+      function printOffer(){
+        const t = currentTicketId(); if (!t) return showError('Missing TicketID for printing.');
+        setBtnBusy(byId('btn_print'), true, 'Working…');
+        showOverlay(true);
+        google.script.run
+          .withSuccessHandler(res => {
+            showOverlay(false);
+            setBtnBusy(byId('btn_print'), false);
+            if (!res || res.ok !== true || !res.html) return showError('Could not render offer.', res);
+            try {
+              const blob = new Blob([res.html], { type: 'text/html;charset=utf-8' });
+              const url  = URL.createObjectURL(blob);
+              const w    = window.open(url, '_blank');
+              if (!w) window.location.href = url;
+            } catch (e) {
+              showError('Failed to open print window.', e);
+            }
+          })
+          .withFailureHandler(err => { showOverlay(false); setBtnBusy(byId('btn_print'), false); showError('Print render failed.', err); })
+          .apiBT_renderOfferHtml(t, 'print');
+      }
+
+      function emailOffer(){
+        const t = currentTicketId(); if (!t) return;
+        const def = byId('h_email').textContent || '';
+        const to = prompt('Send offer to this email:', def);
+        if (!to) return;
+        setBtnBusy(byId('btn_email'), true, 'Working…');
+        showOverlay(true);
+        google.script.run
+          .withSuccessHandler(res => {
+            showOverlay(false);
+            setBtnBusy(byId('btn_email'), false);
+            if (!res || res.ok !== true) return showError('Email send failed.', res);
+            showToast('Offer emailed');
+          })
+          .withFailureHandler(err => { showOverlay(false); setBtnBusy(byId('btn_email'), false); showError('Email send failed.', err); })
+          .apiBT_sendOffer(t, 'email', to, '');
+      }
+
+      function textOffer(){
+        const t = currentTicketId(); if (!t) return;
+        const phone = prompt('Customer phone number (digits only or any format):');
+        if (!phone) return;
+        const carrier = prompt('Carrier (AT&T, Verizon, T-Mobile, Sprint, Cricket, US Cellular, Google Fi):');
+        if (!carrier) return;
+        setBtnBusy(byId('btn_text'), true, 'Working…');
+        showOverlay(true);
+        google.script.run
+          .withSuccessHandler(res => {
+            showOverlay(false);
+            setBtnBusy(byId('btn_text'), false);
+            if (!res || res.ok !== true) return showError('Text send failed.', res);
+            showToast('Offer texted');
+          })
+          .withFailureHandler(err => { showOverlay(false); setBtnBusy(byId('btn_text'), false); showError('Text send failed.', err); })
+          .apiBT_sendOffer(t, 'sms', phone, carrier);
+      }
+
+      function showPayoutStatus(msg, tone) {
+        // tone: 'info' | 'ok' | 'err'
+        const el = document.getElementById('payout_status');
+        if (!el) return;
+        el.textContent = msg;
+        el.style.display = '';
+        // quick tone styling
+        if (tone === 'ok')      { el.style.background = '#ecfdf5'; el.style.color = '#065f46'; el.style.border = '1px solid #10b981'; }
+        else if (tone === 'err'){ el.style.background = '#fef2f2'; el.style.color = '#7f1d1d'; el.style.border = '1px solid #ef4444'; }
+        else                    { el.style.background = '#eff6ff'; el.style.color = '#1e40af'; el.style.border = '1px solid #3b82f6'; }
+      }
+      function hidePayoutStatusSoon(ms) {
+        const el = document.getElementById('payout_status');
+        if (!el) return;
+        setTimeout(() => { el.style.display = 'none'; }, ms || 2500);
+      }
+
+      // ---------- boot ----------
+      window.addEventListener('load', () => {
+        console.debug('[bticket] boot');
+        showOverlay(true); // NEW: start with overlay visible
+        const params = new URLSearchParams(location.search);
+        const ticket = params.get('ticket') || (localStorage.getItem('mrad_current_ticket') || '');
+        if (!ticket) return showError('No TicketID provided in URL.');
+        try { localStorage.setItem('mrad_current_ticket', ticket); }catch(_){}
+        loadTicket(ticket);
+        // If payout was stashed by the Payout page, save it now (we're under a fresh page load)
+        try {
+          const raw = sessionStorage.getItem('mrad_pending_action');
+          if (raw) {
+            const pending = JSON.parse(raw);
+            if (pending && pending.kind === 'payout' && pending.ticket === ticket) {
+              showPayoutStatus('Saving payout…', 'info');
+
+              google.script.run
+                .withSuccessHandler(function (res) {
+                  // Clear the pending work and show confirmation
+                  try { sessionStorage.removeItem('mrad_pending_action'); } catch(_) {}
+                  showPayoutStatus('Payout saved. ID: ' + (res && res.id ? res.id : '(created)'), 'ok');
+                  hidePayoutStatusSoon(2500);
+
+                  // NEW: recompute "Total Pay Amount" on the sheet and repaint the ticket
+                  const t = currentTicketId();
+                  google.script.run
+                    .withSuccessHandler(() => loadTicket(t))
+                    .withFailureHandler(() => loadTicket(t))  // still repaint even if recalc fails
+                    .apiBT_recalcPayTotal(t);
+                })
+                .withFailureHandler(function (err) {
+                  // Keep the pending object so the user can refresh/retry
+                  const msg = (err && err.message) ? err.message : 'Save failed';
+                  showPayoutStatus('Payout failed: ' + msg, 'err');
+                })
+                .apiPayout_Save(pending.payload);
+            }
+          }
+        } catch (e) {
+          console.error('[bticket] pending payout check failed:', e);
+        }
+        byId('btn_add').addEventListener('click', addItemFromForm);
+
+        // NEW: default qty=1 and live totals in toolbar
+        try { byId('add_qty').value = '1'; } catch(_) {}
+        ['add_sell','add_offer','add_qty'].forEach(id => {
+          const el = byId(id);
+          if (el) el.addEventListener('input', recalcToolbarTotals);
+        });
+        recalcToolbarTotals();
+
+        byId('btn_research').addEventListener('click', (e) => {
+          const btn = e.currentTarget;
+          setBtnBusy(btn, true, 'Opening…');
+          showOverlay(true);
+          gotoResearch(); // navigation unloads the page
+        });
+        byId('btn_print').addEventListener('click', printOffer);
+        byId('btn_email').addEventListener('click', emailOffer);
+        byId('btn_text').addEventListener('click', textOffer);
+        byId('btn_payout').addEventListener('click', (e) => {
+          const btn = e.currentTarget;
+          const t = currentTicketId();
+          if (!t) return showError('Missing TicketID.');
+          // Simple UX: show overlay while leaving the page
+          setBtnBusy(btn, true, 'Opening…'); showOverlay(true);
+          gotoPayout(); // navigation will unload the page
+        });
+
+        
+
+
+        byId('btn_ticket_paid').addEventListener('click', (e) => {
+          const btn = e.currentTarget;
+          const t = currentTicketId();
+          if (!t) return showError('Missing TicketID.');
+          if (!confirm('Mark this ticket as PAID?')) return;
+
+          runWithBusy(btn, 'Working…', (done) => {
+            google.script.run
+              .withSuccessHandler(res => {
+                done();
+                if (!res || res.ok !== true) return showError('Server returned an error.', res);
+                applyUiState('paid');         // 1A–1D
+                showToast('Ticket marked as Paid');
+              })
+              .withFailureHandler(err => { done(); showError('Could not update ticket status.', err); })
+              .apiBT_setTicketStatus(t, 'Paid');
+          }, /*useOverlay*/ true);
+        });
+
+
+        byId('btn_offer_declined').addEventListener('click', (e) => {
+          const btn = e.currentTarget;
+          const t = currentTicketId();
+          if (!t) return showError('Missing TicketID.');
+          if (!confirm('Mark this ticket as DECLINED?')) return;
+
+          runWithBusy(btn, 'Working…', (done) => {
+            google.script.run
+              .withSuccessHandler(res => {
+                done();
+                if (!res || res.ok !== true) return showError('Server returned an error.', res);
+                applyUiState('declined');     // 2A–2D (+ 2E persisted)
+                showToast('Ticket marked as Declined');
+              })
+              .withFailureHandler(err => { done(); showError('Could not update ticket status.', err); })
+              .apiBT_setTicketStatus(t, 'Declined');
+          }, /*useOverlay*/ true);
+        });
+
+        byId('btn_items_picked').addEventListener('click', (e) => {
+          const btn = e.currentTarget;
+          const t = currentTicketId();
+          if (!t) return showError('Missing TicketID.');
+          if (!confirm('Mark ITEMS as PICKED UP and close the ticket?')) return;
+
+          runWithBusy(btn, 'Working…', (done) => {
+            google.script.run
+              .withSuccessHandler(res => {
+                done();
+                if (!res || res.ok !== true) return showError('Server returned an error.', res);
+                applyUiState('picked_up');
+                showToast('Items marked as Picked Up');
+              })
+              .withFailureHandler(err => { done(); showError('Could not update ticket status.', err); })
+              .apiBT_setTicketStatus(t, 'picked_up');
+          }, /*useOverlay*/ true);
+        });
+
+        byId('btn_reopen').addEventListener('click', (e) => {
+          const btn = e.currentTarget;
+          const t = currentTicketId();
+          if (!t) return showError('Missing TicketID.');
+          if (!confirm('Re-open this ticket?')) return;
+
+          runWithBusy(btn, 'Working…', (done) => {
+            google.script.run
+              .withSuccessHandler(res => {
+                done();
+                if (!res || res.ok !== true) return showError('Server returned an error.', res);
+                applyUiState('default');
+                showToast('Ticket re-opened');
+              })
+              .withFailureHandler(err => { done(); showError('Could not update ticket status.', err); })
+              .apiBT_setTicketStatus(t, 'Open');
+          }, /*useOverlay*/ true);
+        });
+
+      });
+    </script>
+    <!-- Global busy overlay -->
+    <div id="busy_overlay" class="busy-overlay" aria-hidden="true">
+      <div class="spinner" role="progressbar" aria-label="Working"></div>
+    </div>
+    <!-- Screen reader live region -->
+    <div id="sr_status" aria-live="polite" style="position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden"></div>
+  </body>
+</html>

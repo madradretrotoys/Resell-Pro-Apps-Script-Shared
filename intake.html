@@ -1,0 +1,1968 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8"/>
+    <title>Mad Rad Inventory Intake</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <style>
+      body{font:14px/1.35 ui-sans-serif,system-ui,Segoe UI,Roboto,Helvetica,Arial;margin:0;color:#111;background:#fafafa}
+      header{background:#fff;border-bottom:1px solid #eee}
+      .wrap{max-width:1080px;margin:0 auto;padding:12px}
+      .card{background:#fff;border:1px solid #eee;border-radius:12px;padding:12px;margin:12px 0}
+      .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+      .field{display:flex;flex-direction:column}
+      .field.wide{grid-column:1/-1}
+      label{font-size:12px;margin-bottom:4px}
+      input,select,textarea{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
+      .actions{display:flex;gap:8px;align-items:center}
+      .btn{background:#0ea5e9;color:#fff;border:1px solid #0ea5e9;border-radius:8px;padding:8px 12px;cursor:pointer}
+      .btn.ghost{background:#fff;color:#111;border:1px solid #ddd}
+
+      .btn.tiny{padding:2px 8px;font-size:12px}
+      .muted{color:#6b7280;font-size:12px}
+      .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace}
+      #result{display:none;margin-top:10px;border-top:1px dashed #e5e7eb;padding-top:10px}
+      /* Hide old Load Draft button per new UX */
+      #btnLoadDraft{display:none !important}
+      /* Recent drafts table */
+      table.recent{width:100%;border-collapse:collapse}
+      table.recent th, table.recent td{border-bottom:1px solid #eee;padding:6px;text-align:left;font-size:13px}
+      table.recent th{color:#374151;font-weight:600;background:#fafafa}
+      .right{text-align:right}
+      /* ===== New utilities for sectioning & show/hide ===== */
+      .sectionTitle{font-weight:700;font-size:14px;margin:0 0 8px;color:#374151}
+      .hidden{display:none !important}
+
+      /* --- Phase 2: tabs --- */
+      .tabs{display:flex;gap:6px;margin-bottom:8px}
+      .tab{background:#fff;border:1px solid #ddd;border-bottom:none;border-radius:8px 8px 0 0;padding:6px 10px;cursor:pointer}
+      .tab.active{background:#0ea5e9;color:#fff;border-color:#0ea5e9}
+      .tabpanes{border:1px solid #eee;border-radius:0 12px 12px 12px;padding:10px}
+
+      /* --- Bulk runner UX --- */
+      .btn.danger{background:#ef4444;border-color:#ef4444;color:#fff}
+      #bulkStop{display:none} /* hidden until Start */
+      #bulkMsg[aria-live]{min-height:1.25em} /* reserve space for messages */
+
+
+    </style>
+  </head>
+    <body>
+
+      <script>
+        (function () {
+          // ------- Build a stable BASE that works for both /exec and /dev -------
+          // 1) "server" is always the /exec URL for this deployment (Apps Script fills it in)
+          var server = '<?= execUrl ?>'.replace(/\/+$/, '');
+
+          // 2) If we came from a wrapper (test deployment), referrer will look like:
+          //    https://script.google.com/macros/s/.../dev?page=pos
+          var ref = (document.referrer || '').replace(/#.*$/, '');
+          var isDevRef  = /\/dev(?:\/)?(?:\?.*)?$/i.test(ref);
+
+          // 3) Fallback: current page path (rarely needed, but safe)
+          var here = (location.origin + location.pathname).replace(/\/+$/, '');
+          var isDevHere = /\/dev$/i.test(here);
+
+          // 4) Decide BASE
+          var BASE = ref
+            ? (isDevRef ? ref.replace(/\?.*$/, '').replace(/\/+$/, '') : server)
+            : (isDevHere ? here : server);
+
+          // Expose for nav and other pages that rely on it
+          window.MADRAD_EXEC_URL = BASE;
+
+          // ------- Auth bootstrap (unchanged, but uses BASE for redirects) -------
+          var token = localStorage.getItem('mrad_token');
+          if (!token) { window.location.replace(BASE + '?page=login'); return; }
+
+          try {
+            window.MADRAD_PROFILE = JSON.parse(localStorage.getItem('mrad_profile') || 'null');
+          } catch (_) {}
+
+          google.script.run
+            .withSuccessHandler(function (profile) {
+              window.MADRAD_PROFILE = profile;
+              localStorage.setItem('mrad_profile', JSON.stringify(profile));
+            })
+            .withFailureHandler(function () {
+              localStorage.removeItem('mrad_token');
+              localStorage.removeItem('mrad_profile');
+              window.location.replace(BASE + '?page=login');
+            })
+            .apiVerify(token);
+        })();
+        </script>
+        <script>window.MADRAD_PAGE = 'intake';</script>
+        <?!= include('nav'); ?>
+
+
+        <header>
+          <div class="wrap">
+            <h1>Mad Rad Inventory Intake</h1>
+            
+          </div>
+        </header>
+
+        <main class="wrap">
+          <section class="card">
+            <div class="actions" style="margin-bottom:8px">
+              <button id="btnLoadDraft" type="button" class="btn ghost">Load Draft (from Research)</button>
+              <span class="muted">Tip: Coming from Research auto-loads latest draft.</span>
+            </div>
+
+             <form id="f" autocomplete="off">
+              <!-- ===== Section A: Basic Item Details (Always Shown, Always Required) ===== -->
+              <div class="card" style="margin:8px 0">
+                <h3 class="sectionTitle">Basic Item Details</h3>
+                <div class="grid">
+                  <div class="field">
+                    <label>Item Name / Description</label>
+                    <input id="name" required />
+                  </div>
+
+                  <div class="field">
+                    <label>Price (USD)</label>
+                    <input id="price" type="number" min="0" step="0.01" inputmode="decimal" required />
+                  </div>
+
+                  <div class="field">
+                    <label>Qty</label>
+                    <input id="qty" type="number" min="1" step="1" value="1" inputmode="numeric" required />
+                  </div>
+
+                  <div class="field">
+                    <label>Cost of Goods (USD)</label>
+                    <input id="costOfGoods" type="number" min="0" step="0.01" inputmode="decimal" required />
+                  </div>
+
+                  <div class="field">
+                    <label>Category</label>
+                    <select id="category" required></select>
+                  </div>
+
+                  <div class="field">
+                    <label>Store Location</label>
+                    <select id="storeLoc" required></select>
+                  </div>
+
+                  <div class="field">
+                    <label>Case#/Bin#/Shelf#</label>
+                    <input id="caseBinShelf" placeholder="e.g. A12 or 15" required />
+                  </div>
+
+                  <div class="field">
+                    <label>Sales Channel</label>
+                    <select id="onlineLoc" required></select>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ===== Section B: Vendoo Listing Details (Shown only for Vendoo/Both) ===== -->
+              <div id="vendooSection" class="card hidden" style="margin:8px 0">
+                <h3 class="sectionTitle">Vendoo Listing Details</h3>
+                <div class="grid">
+                  <div class="field">
+                    <label for="vendooCategory">Vendoo Category</label>
+                    <select id="vendooCategory"></select>
+                    <div class="muted">From sheet “Vendoo Categories” → “Resell Pro Display”.</div>
+                  </div>
+
+                  <div class="field">
+                    <label for="condition">Condition</label>
+                    <select id="condition"></select>
+                  </div>
+
+                  <div class="field">
+                    <label for="brand">Brand</label>
+                    <select id="brand"></select>
+                  </div>
+
+                  <div class="field">
+                    <label for="primaryColor">Primary Color</label>
+                    <select id="primaryColor"></select>
+                  </div>
+                </div>
+
+                <!-- Long Description moved here; editable for Vendoo/Both -->
+                <div id="longDescBlock" style="display:none; margin-top:10px">
+                  <div><strong>Long Description</strong></div>
+                  <div class="actions" style="margin-top:8px">
+                    <button id="copyVendoo" class="btn ghost tiny" type="button">Copy Long Description</button>
+                  </div>
+                  <textarea id="vendooText" class="mono" style="width:100%;min-height:120px" placeholder="Add condition and details here…"></textarea>
+                </div>
+
+                <!-- Shipping Box + Weight/Dimensions -->
+                <div id="shipBlock" style="margin-top:10px">
+                  <div class="grid">
+                    <div class="field">
+                      <label for="shipBox">Shipping Box</label>
+                      <select id="shipBox"></select>
+                      <div class="muted">From sheet “Shipping” → “Shipping_Box_Options”.</div>
+                    </div>
+
+                    <div class="field">
+                      <label for="shipLb">Weight LB</label>
+                      <input id="shipLb" type="number" min="0" step="1" disabled />
+                    </div>
+
+                    <div class="field">
+                      <label for="shipOz">Weight OZ</label>
+                      <input id="shipOz" type="number" min="0" step="1" disabled />
+                    </div>
+
+                    <div class="field">
+                      <label for="shipLen">Length</label>
+                      <input id="shipLen" type="number" min="0" step="0.1" disabled />
+                    </div>
+
+                    <div class="field">
+                      <label for="shipWid">Width</label>
+                      <input id="shipWid" type="number" min="0" step="0.1" disabled />
+                    </div>
+
+                    <div class="field">
+                      <label for="shipHei">Height</label>
+                      <input id="shipHei" type="number" min="0" step="0.1" disabled />
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+
+              <div class="actions">
+                <button id="addBtn" class="btn" type="submit">Add Single Item</button>
+                <button id="addBulkBtn" class="btn ghost" type="button" title="Save and queue for Bulk processing (Vendoo + Xeasy later)">Add to Bulk List</button>
+              </div>
+            </form>
+
+            <!-- Result / copy block -->
+            <div id="result">
+              <button id="copyForLabel" class="btn ghost" type="button">Copy for Xeasy Label</button>
+              <div><strong>SKU:</strong> <span id="r-sku" class="mono"></span> <button id="copySku" class="btn ghost tiny" type="button">Copy SKU</button></div>
+              <div><strong>SKU and Location:</strong> <span id="r-label" class="mono"></span> <button id="copyLabel" class="btn ghost tiny" type="button">Copy</button></div>
+              <div><strong>Price:</strong> <span id="r-price" class="mono"></span> <button id="copyPrice" class="btn ghost tiny" type="button">Copy</button></div>
+              
+              <div><strong>Business Details:</strong> 
+                <span class="muted">Mad Rad Retro Toys (tap Copy)</span>
+                <button id="copyBiz" class="btn ghost tiny" type="button">Copy</button>
+              </div>
+              
+              
+              <div><strong>Title:</strong> <span id="r-name"></span> <button id="copyName" class="btn ghost tiny" type="button">Copy</button></div>
+
+              
+
+              <div class="actions" style="margin-top:10px">
+                <button id="addAnother" class="btn" type="button">Add Another</button>
+                <button id="editItem" class="btn ghost" type="button">Enable Edit</button>
+                <button id="deleteItem" class="btn warn" type="button">Delete This Item</button>
+
+                <label class="actions" style="gap:6px; align-items:center">
+                  <input id="vendooNoCredit" type="checkbox"/>
+                  <span class="muted">Don’t save in Vendoo (test mode)</span>
+                </label>  
+
+                <!-- NEW: Add to Vendoo -->
+                <button id="btnVendoo" class="btn" type="button" title="Send this item to Vendoo">
+                  Add to Vendoo
+                </button>
+              </div>
+              <div class="muted" id="vendooHint" style="margin-top:6px; display:none">
+                Make sure you’re logged into Vendoo and on the “Add Item” form. A new tab will open.
+              </div>
+
+              <div class="diag">
+                <button id="diagBtn" class="btn ghost" type="button">Diagnostics</button>
+              </div>
+            </div>
+          </section>
+          <!-- PHASE 2: Tabbed lists (Bulk Entry + Recent Drafts) -->
+          <section class="card" id="listsCard">
+            <div class="tabs" role="tablist" aria-label="Bulk & Draft lists">
+              <button id="tabBulk"   class="tab" role="tab" aria-controls="paneBulk">Bulk Entry</button>
+              <button id="tabDrafts" class="tab" role="tab" aria-controls="paneDrafts">Recent Drafts</button>
+            </div>
+
+
+            
+            <div class="tabpanes">
+              <!-- Bulk Entry (Pending) -->
+              <div id="paneBulk" role="tabpanel">
+              <div class="muted" id="bulkNote">Loading…</div>
+
+              <!-- Bulk controls -->
+              <div id="bulkControls" class="actions" style="margin:8px 0">
+                <button id="bulkStart" class="btn" type="button" title="Process all Pending items one by one">Start Bulk ›</button>
+                <button id="bulkStop"  class="btn danger" type="button" disabled>Stop</button>
+                <button id="bulkExport" class="btn ghost" type="button" title="Create a new Google Sheet for Xeasy (all Pending)">Export Xeasy Sheet</button>
+                <button id="bulkCopyXeasy" class="btn ghost" type="button" title="Copy 3 columns (Line 1 / Line 2 / Line 3) for Xeasy">Copy for Xeasy (3 cols)</button>
+                <!-- NEW: Bulk test-mode toggle -->
+                <label class="actions" style="gap:6px; align-items:center; margin-left:8px">
+                  <input id="bulkNoCredit" type="checkbox"/>
+                  <span class="muted">Don’t save in Vendoo (test mode)</span>
+                </label>
+
+                <span id="bulkProg" class="muted" style="margin-left:8px"></span>
+                <span id="bulkMsg" class="muted" aria-live="polite" style="margin-left:8px"></span>
+              </div>
+
+              <div id="bulkWrap" style="margin-top:6px"></div>
+            </div>
+
+              <!-- Recent Drafts (unchanged behavior, just moved into a tab) -->
+              <div id="paneDrafts" class="hidden" role="tabpanel" aria-hidden="true">
+                <h3 style="margin:0 0 6px">Recent Drafts (last 20)</h3>
+                <div class="muted" id="recentNote">Loading…</div>
+                <div id="recentWrap" style="margin-top:6px"></div>
+              </div>
+            </div>
+          </section>
+        </main>
+
+        
+        <script>
+          
+          (function(){
+            // ---- Helpers
+            function $(id){ return document.getElementById(id); }
+            function getVal(id){ const el=$(id); return (el && 'value' in el) ? el.value : ''; }
+            function genSubmissionId(){ return 's' + Date.now() + '-' + Math.random().toString(36).slice(2,7); }
+            function setDisabledAll(disabled){
+              ['category','name','price','qty','storeLoc','caseBinShelf','onlineLoc','costOfGoods','addBtn'].forEach(id=>{
+                const el=$(id); if(el){ el.disabled = !!disabled; }
+              });
+            }
+            // NEW: track which submit mode was chosen ("single" by default)
+            window.__intakeSubmitMode = 'single';
+
+            // Default clause for direct-intake visits (no BT/Research long desc)
+                window.MRAD_DEFAULT_LONGDESC = "The photos are part of the description. Be sure to look them over for condition and details. This is sold as is and it's ready for a new home.";
+
+                function ensureDefaultClause(text){
+                  const t = String(text||'');
+                  const def = String(window.MRAD_DEFAULT_LONGDESC||'').trim();
+                  if (!def) return t;
+                  const hasDef = t.toLowerCase().includes(def.toLowerCase());
+                  return hasDef ? t : (t ? (t + "\n\n" + def) : def);
+                }
+
+                // Tracks whether BT/Research provided a non-empty long description
+                window.__mrad_seed_applied = false;
+
+            const addBulkBtnWire = () => {
+              const bulkBtn = $('addBulkBtn');
+              if (bulkBtn && !bulkBtn.__wired) {
+                bulkBtn.addEventListener('click', () => {
+                  window.__intakeSubmitMode = 'bulk';
+                  // trigger same form submit path
+                  $('f').requestSubmit();
+                });
+                bulkBtn.__wired = true;
+                
+              }
+            };  
+
+
+
+          function fillSelect(id, options, withPlaceholder){
+            const sel=$(id); if(!sel) return;
+            sel.innerHTML='';
+            if (withPlaceholder) {
+              const opt = document.createElement('option');
+              opt.value=''; opt.textContent='— Select —'; opt.disabled=true; opt.selected=true;
+              sel.appendChild(opt);
+            }
+            (options||[]).forEach(v=>{
+              const o=document.createElement('option'); o.value=v; o.textContent=v; sel.appendChild(o);
+            });
+          }
+          
+          function wireShippingBox(){
+            const sel = $('shipBox');
+            if (!sel || sel.__mrad_wired) return;
+            sel.__mrad_wired = true;
+
+            function setField(id, val){
+              const el = $(id); if (!el) return;
+              const has = !(val === '' || val == null || Number.isNaN(Number(val)));
+              el.value = has ? String(val) : '';
+              // Enable if missing/not provided; keep disabled if we have a preset value
+              el.disabled = has;
+            }
+
+            sel.addEventListener('change', ()=>{
+              const key = (sel.value || '').trim();
+              const meta = (window.SHIP_META_MAP && window.SHIP_META_MAP[key]) || null;
+
+              if (!key) {
+                // No selection: clear & disable all
+                ['shipLb','shipOz','shipLen','shipWid','shipHei'].forEach(id=>{
+                  const el = $(id); if (el){ el.value = ''; el.disabled = true; }
+                });
+              } else if (!meta) {
+                // Unknown option: enable all for manual entry
+                ['shipLb','shipOz','shipLen','shipWid','shipHei'].forEach(id=>{
+                  const el = $(id); if (el){ el.value = ''; el.disabled = false; }
+                });
+              } else {
+                // Apply meta; enable only the fields that are missing from meta
+                setField('shipLb',  meta.lb);
+                setField('shipOz',  meta.oz);
+                setField('shipLen', meta.len);
+                setField('shipWid', meta.wid);
+                setField('shipHei', meta.hei);
+              }
+            });
+          }
+
+          // Bind once DOM is ready
+          document.addEventListener('DOMContentLoaded', wireShippingBox);
+
+          // ===== Vendoo visibility / requiredness controller =====
+          function vendooChannelActive(){
+            const ch = (getVal('onlineLoc') || '').trim().toLowerCase();
+            // Treat anything that contains "vendoo" as vendoo-active (e.g., "vendoo only")
+            // and anything that contains "both" as both-active.
+            return ch.includes('vendoo') || ch.includes('both');
+          }
+
+          function updateVendooVisibility(){
+            const isVendoo = vendooChannelActive();
+            const sec = $('vendooSection');
+            if (sec) sec.classList.toggle('hidden', !isVendoo);
+
+            // Show/hide long description editor with the Vendoo section
+            const block = $('longDescBlock');
+            if (block) block.style.display = isVendoo ? 'block' : 'none';
+
+            const ship = $('shipBlock');
+            if (ship) ship.style.display = isVendoo ? 'block' : 'none';
+
+            // Wire persistence once: keep session in sync as user types
+            const area = $('vendooText');
+            if (area && !area.__mrad_input){
+              area.addEventListener('input', ()=>{
+                try { sessionStorage.setItem('mrad_last_longdesc', area.value); } catch(_){}
+              });
+              area.__mrad_input = true;
+            }
+
+            // Direct-intake default: if Vendoo/Both active, no seed, and empty, insert default once
+            if (isVendoo && area && !area.value.trim() && !window.__mrad_seed_applied){
+              area.value = ensureDefaultClause('');
+              try { sessionStorage.setItem('mrad_last_longdesc', area.value); } catch(_){}
+            }
+
+            // Do not hard-require on submit; we gate the Vendoo button instead
+            ['condition','brand','primaryColor','vendooCategory'].forEach(id=>{
+              const el = $(id);
+              if (!el) return;
+              el.required = false;
+            });
+          }
+
+          function vendooFieldsReady(){
+            // All needed fields for Vendoo hand-off must be present
+            const need = ['condition','brand','primaryColor','vendooCategory'];
+            const allOk = need.every(id => !!getVal(id));
+
+            const longTxt = (($('vendooText') && $('vendooText').value) || sessionStorage.getItem('mrad_last_longdesc') || '').trim();
+
+            // Shipping requirements
+            const shipBoxOk = !!getVal('shipBox');
+            const shipValsOk = ['shipLb','shipOz','shipLen','shipWid','shipHei'].every(id => {
+              const v = getVal(id);
+              return v !== '' && v != null; // treat 0 as valid if they ever typed it
+            });
+
+            return allOk && !!longTxt && shipBoxOk && shipValsOk;
+          }
+
+          function updateVendooButtonState(sku, payload){
+            const btn = $('btnVendoo');
+            const hint = $('vendooHint');
+            const isVendoo = vendooChannelActive();
+
+            if (!btn) return;
+
+            // Show button only when channel is Vendoo/Both (hide otherwise)
+            btn.style.display = isVendoo ? '' : 'none';
+
+            if (!isVendoo) {
+              if (hint) hint.style.display = 'none';
+              btn.disabled = false;
+              return;
+            }
+
+            // When Vendoo/Both, enable only if all Vendoo fields + long description are ready
+            const ready = vendooFieldsReady();
+            btn.disabled = !ready;
+            if (hint) {
+              hint.textContent = ready
+                ? 'Make sure you’re logged into Vendoo and on the “Add Item” form. A new tab will open.'
+                : 'Fill Vendoo Category, Condition, Brand, Primary Color, Long Description, Shipping Box and Weight/Dimensions to enable.';
+              hint.style.display = 'block';
+            }
+          }
+
+          function showResult(res){
+            $('result').style.display='block';
+            $('r-sku').textContent = res.sku || '';
+            $('r-name').textContent = res.name || '';
+            $('r-price').textContent = res.priceDisplay || '';
+            $('r-label').textContent = res.labelLine || '';
+          }
+
+          function buildVendooPayload(sku, payload){
+            // Compose SKU the way your label shows it: SKU + store + bin/shelf
+            const skuLine = [sku, payload.storeLoc, payload.caseBinShelf].filter(Boolean).join(' ');
+            
+            // NEW: resolve Vendoo category path from the display name, fall back to your old default
+            const display = String(payload.vendooCategoryDisplay || '').trim();
+            const categoryStr =
+              (window.VENDOO_PATH_MAP && display && window.VENDOO_PATH_MAP[display]) ||
+              "Toys & Hobbies > Action Figures & Accessories > Action Figures";
+
+            // Long description (if present from Research)
+            const longDesc = (sessionStorage.getItem('mrad_last_longdesc') || '').trim();
+
+            // NEW: test-mode flag from checkbox
+            const noCredit = (document.getElementById('vendooNoCredit')?.checked ? '1' : '0');
+
+            return {
+              // Item Details
+              title:       payload.name || '',
+              description: longDesc || (payload.name || ''),
+              brand:       payload.brand || '',
+              primaryColor:       payload.primaryColor || '',
+              condition:   payload.condition || '',
+
+              // SKU and basics
+              sku:       skuLine,
+              zip:       '80033',                        // NOTE: renamed from zipCode -> zip
+              quantity:  String(payload.qty || '1'),
+
+              // Category string (NOTE: renamed from array categoryPath -> category)
+              category:  categoryStr,
+
+              // Pricing
+              price:       String(payload.price || ''),
+              costOfGoods: String(payload.costOfGoods || ''),
+              // Shipping
+              shippingBox: String(payload.shippingBox || ''),
+              weightLb:    String(payload.weightLb    || ''),
+              weightOz:    String(payload.weightOz    || ''),
+              length:      String(payload.length      || ''),
+              width:       String(payload.width       || ''),
+              height:      String(payload.height      || ''),
+
+              // NEW: send to userscript so it can skip Save when checked
+              noCredit:    noCredit
+
+            };
+          }
+
+          // ===== Vendoo bridge (opens Vendoo and sends payload) =====
+          const VENDOO_TARGET_URL = 'https://web.vendoo.co/app/item/new?marketplace=general';
+          const VENDOO_TOKEN = 'MRAD_VENDOO_V1'; // must match Tampermonkey script
+
+          function openVendooAndSend(payload) {
+            // token stamp (must match userscript)
+            payload.__token = 'MRAD_VENDOO_V1';
+
+            const hint = document.getElementById('vendooHint');
+            if (hint) { hint.style.display = 'block'; hint.setAttribute('aria-live', 'polite'); }
+
+            // Open Vendoo in a new tab WITH a bootstrap payload in the URL (fallback to postMessage)
+            const VENDOO_TARGET_URL = 'https://web.vendoo.co/app/item/new?marketplace=general';
+            const encoded = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(payload)))));
+            const vendooWin = window.open(VENDOO_TARGET_URL + '#mrad=' + encoded, '_blank');
+            if (!vendooWin) {
+              alert('Popup blocked. Please allow popups for this site and try again.');
+              return;
+            }
+
+            // Start retrying postMessage once per second…
+            let tries = 0;
+            const timer = setInterval(() => {
+              tries++;
+              try { vendooWin.postMessage({ type: 'mrad_vendoo_fill', payload }, '*'); } catch(e) {}
+              if (tries >= 45) {
+                clearInterval(timer);
+                window.removeEventListener('message', onAck, true);
+              }
+            }, 1000);
+
+            // …but stop immediately when the Vendoo tab ACKs
+            function onAck(ev) {
+              const ok = ev && ev.data && ev.data.type === 'mrad_vendoo_ack' && ev.source === vendooWin;
+              if (!ok) return;
+              clearInterval(timer);
+              window.removeEventListener('message', onAck, true);
+            }
+            window.addEventListener('message', onAck, true);
+
+            // When Vendoo reports it has saved and navigated to /app/item/<ID>
+            function onSaved(ev) {
+              const ok = ev && ev.source === vendooWin && ev.data && ev.data.type === 'mrad_vendoo_saved';
+              if (!ok) return;
+
+              // One-shot listener
+              window.removeEventListener('message', onSaved, true);
+              window.removeEventListener('message', onError, true);
+
+              const vendooId = String(ev.data.vendooId || '').trim();
+              let vendooUrl = String(ev.data.vendooUrl || '').trim();
+              if (!vendooId) return;
+
+              // Convert our "Vendoo SKU line" back to base SKU for the tracker (first token)
+              const skuToken = String(payload.sku || '').split(' ')[0];
+              if (!vendooUrl) vendooUrl = 'https://web.vendoo.co/app/item/' + vendooId;
+
+              // Persist to SKU Tracker
+              google.script.run
+                .withSuccessHandler(() => {
+                  const hint = document.getElementById('vendooHint');
+                  if (hint) hint.textContent = `Vendoo saved • ${vendooId}`;
+                  // Back-up: if the userscript didn’t close it, try here
+                  try { if (vendooWin && !vendooWin.closed) vendooWin.close(); } catch(_){}
+                })
+                .withFailureHandler(err => {
+                  console.error('apiSku_SetVendooInfo failed:', err);
+                  const hint = document.getElementById('vendooHint');
+                  if (hint) hint.textContent = 'Vendoo saved, but write-back failed. See console.';
+                })
+                .apiSku_SetVendooInfo(skuToken, vendooId, vendooUrl);
+            }
+            window.addEventListener('message', onSaved, true);
+
+            // NEW: error handler (from userscript)
+            function onError(ev){
+              const ok = ev && ev.source === vendooWin && ev.data && ev.data.type === 'mrad_vendoo_error';
+              if (!ok) return;
+              window.removeEventListener('message', onError, true);
+              window.removeEventListener('message', onSaved, true);
+              const reason = String(ev.data.reason || '').replace(/_/g,' ');
+              const hintEl = document.getElementById('vendooHint');
+              if (hintEl) hintEl.textContent = reason ? ('Vendoo: ' + reason) : 'Vendoo fill failed.';
+              try { if (vendooWin && !vendooWin.closed) vendooWin.close(); } catch(_){}
+            }
+            window.addEventListener('message', onError, true);
+
+            return vendooWin; // allow caller (bulk runner) to track the window
+          }
+
+          // ---- Load dropdowns (Category with placeholder every time)
+          const FALLBACK_CATS = ['Marvel','DC','GI Joe','Spawn','Horror','TMNT','Masters of the Universe','Funko','Plushies','Polly Pocket','My Little Pony','Star Wars','Ghostbusters','Aliens','Predator','Street Sharks','Transformers','Pop Mart','Dragon Ball Z','General Toys','Miscellaneous (Non-Toys)'];
+          fillSelect('category', FALLBACK_CATS, true);
+          google.script.run
+            .withSuccessHandler(list => fillSelect('category', (Array.isArray(list)&&list.length?list:FALLBACK_CATS), true))
+            .getCategoryNames();
+
+          google.script.run.withSuccessHandler(list=>fillSelect('storeLoc', list||[], true)).getStoreLocations();
+          google.script.run
+            .withSuccessHandler(list=>{
+              fillSelect('onlineLoc', list||[], true);
+              updateVendooVisibility(); // set initial visibility once onlineLoc options exist
+              const sel = $('onlineLoc');
+              if (sel && !sel.__mrad_wired) {
+                sel.addEventListener('change', updateVendooVisibility);
+                sel.__mrad_wired = true;
+              }
+            })
+            .getOnlineLocations();
+
+          google.script.run
+            .withSuccessHandler(list => fillSelect('condition', list || [], true))
+            .getConditions();
+
+          google.script.run
+            .withSuccessHandler(list => fillSelect('brand', list || [], true))
+            .getBrands();
+
+          google.script.run
+            .withSuccessHandler(list => fillSelect('primaryColor', list || [], true))
+            .getprimaryColors();
+
+          // Keep this near your other dropdown loads:
+          google.script.run
+            .withSuccessHandler(list => fillSelect('vendooCategory', list || [], true))
+            .getVendooDisplayList();
+
+          // Cache: display -> full Vendoo path string
+          window.VENDOO_PATH_MAP = {};
+          google.script.run
+            .withSuccessHandler(map => { window.VENDOO_PATH_MAP = map || {}; })
+            .getVendooPathMap();
+
+          // Shipping Box: options + metadata
+          window.SHIP_META_MAP = {};
+          google.script.run
+            .withSuccessHandler(list => fillSelect('shipBox', list || [], true))
+            .getShippingBoxOptions();
+
+          google.script.run
+            .withSuccessHandler(map => { window.SHIP_META_MAP = map || {}; })
+            .getShippingBoxMeta();
+
+
+          // ---- Draft load/apply (from Research or manual)
+          function applyDraftToForm(d){
+            if (d.shortDesc) $('name').value = d.shortDesc;
+            const bestPrice = (d.altPrice && Number.isFinite(Number(d.altPrice))) ? Number(d.altPrice) : (Number(d.recPrice) || null);
+            if (bestPrice != null) $('price').value = bestPrice.toFixed(2);
+
+            // surface long description both in session (for modal) and visible copy area
+            const longTxt = (d.longDesc || '').trim();
+            sessionStorage.setItem('mrad_last_longdesc', longTxt);
+            if (longTxt) { try { window.__mrad_seed_applied = true; } catch(_) {} }
+            //you may need to shut this off come back here
+            //if (longTxt) {
+            //  $('vendooText').value = longTxt;
+            //  $('longDescBlock').style.display = 'block';
+            //  $('result').style.display = 'block';
+            //}
+            alert('Draft loaded into fields. Review & press “Add Item” to finalize.');
+          }
+
+          // --- Duplicate helper: strip lines we don't want and pre-fill form ---
+          function __stripLinesForDuplicate(longText, title, sku, storeLoc, caseBinShelf){
+            const lines = String(longText||'').split(/\r?\n/).map(s=>s.trim());
+            const DEF = String(window.MRAD_DEFAULT_LONGDESC||'').trim();
+            const skuLine = [String(sku||'').trim(), String(storeLoc||'').trim(), String(caseBinShelf||'').trim()].filter(Boolean).join(' ');
+
+            const out = [];
+            for (const line of lines){
+              if (!line) continue;
+              // remove exact Title line
+              if (title && line === String(title).trim()) continue;
+              // remove default blurb (exact match)
+              if (DEF && line === DEF) continue;
+              // remove SKU/Location/Case line exactly as displayed on label
+              if (skuLine && line === skuLine) continue;
+              out.push(line);
+            }
+            // join with blank line between paragraphs if we kept any
+            return out.join('\n\n');
+          }
+
+          function applyDuplicateToForm(item){
+            // Title blank by requirement
+            const $ = id => document.getElementById(id);
+            if (!item) return;
+            // Basic
+            if ($('price')) $('price').value = ''; // leave price blank on duplicate (intentional)
+            if ($('qty')) $('qty').value = String(item.qty||1);
+            if ($('costOfGoods')) $('costOfGoods').value = String(item.costOfGoods||'');
+            if ($('category')) $('category').value = String(item.category||'');
+            if ($('storeLoc')) $('storeLoc').value = String(item.storeLoc||'');
+            if ($('caseBinShelf')) $('caseBinShelf').value = String(item.caseBinShelf||'');
+            if ($('onlineLoc')) { $('onlineLoc').value = String(item.onlineLoc||''); }
+
+            // Vendoo fields
+            if ($('vendooCategory')) $('vendooCategory').value = String(item.vendooCategoryDisplay||'');
+            if ($('condition')) $('condition').value = String(item.condition||'');
+            if ($('brand')) $('brand').value = String(item.brand||'');
+            if ($('primaryColor')) $('primaryColor').value = String(item.primaryColor||'');
+
+            // Shipping
+            if ($('shipBox')) $('shipBox').value = String(item.shippingBox||'');
+            if ($('shipLb'))  { $('shipLb').value  = item.weightLb ?? ''; $('shipLb').disabled  = !!(item.weightLb||item.weightLb===0); }
+            if ($('shipOz'))  { $('shipOz').value  = item.weightOz ?? ''; $('shipOz').disabled  = !!(item.weightOz||item.weightOz===0); }
+            if ($('shipLen')) { $('shipLen').value = item.length   ?? ''; $('shipLen').disabled = !!(item.length||item.length===0); }
+            if ($('shipWid')) { $('shipWid').value = item.width    ?? ''; $('shipWid').disabled = !!(item.width||item.width===0); }
+            if ($('shipHei')) { $('shipHei').value = item.height   ?? ''; $('shipHei').disabled = !!(item.height||item.height===0); }
+
+            // Description: stripped of Title, default blurb, and SKU/Loc/Case line
+            const stripped = __stripLinesForDuplicate(
+              item.longDescriptionFull || '',
+              item.name || '',
+              item.sku || '',
+              item.storeLoc || '',
+              item.caseBinShelf || ''
+            );
+
+            // Persist + show long description block when Vendoo/Both is selected
+            try { sessionStorage.setItem('mrad_last_longdesc', stripped); } catch(_){}
+            const area = document.getElementById('vendooText');
+            if (area) area.value = stripped;
+
+            // Force Vendoo visibility refresh (since onlineLoc may have changed)
+            try { updateVendooVisibility(); } catch(_){}
+
+            // Put focus on Title so user can type the specific character
+            const nameEl = document.getElementById('name');
+            if (nameEl) { nameEl.value = ''; nameEl.focus(); }
+          }
+
+          // Server call to fetch the duplicate source by SKU
+          function duplicateFromSku(sku){
+            const spin = document.getElementById('bulkMsg');
+            if (spin) { spin.textContent = 'Loading duplicate…'; }
+            google.script.run
+              .withSuccessHandler(function(res){
+                if (spin) spin.textContent = '';
+                if (!res || !res.ok || !res.item) { alert('Unable to load item for duplication.'); return; }
+                applyDuplicateToForm(res.item);
+                // Switch to Intake form card if needed
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              })
+              .withFailureHandler(function(err){
+                if (spin) spin.textContent = '';
+                alert(err && err.message ? err.message : String(err));
+              })
+              .apiIntake_GetItemForDuplicate(String(sku||''));
+          }
+
+          // -------- Buy Ticket → Intake seed prefill --------
+          function applyBtIntakeSeed(seed) {
+            try {
+              if (!seed || typeof seed !== 'object') return;
+
+              // 1) Item Name / Description
+              if (seed.name) $('name').value = String(seed.name);
+
+              // 2) Price (USD)
+              if (seed.price != null && seed.price !== '' && !isNaN(Number(seed.price))) {
+                $('price').value = Number(seed.price).toFixed(2);
+              }
+
+              if (seed.offer != null && seed.offer !== '' && !isNaN(Number(seed.offer))) {
+                var cog = $('costOfGoods');
+                if (cog) cog.value = Number(seed.offer).toFixed(2);
+              }
+
+              if (seed.qty != null && seed.qty !== '' && !isNaN(Number(seed.qty))) {
+                var q = Math.max(1, Math.floor(Number(seed.qty)));
+                $('qty').value = String(q);
+              }
+              
+              // 3) Long Description (Research)
+              const longTxt = (seed.longDesc || '').trim();
+              sessionStorage.setItem('mrad_last_longdesc', longTxt);
+              if (longTxt) {
+                const area = $('vendooText');
+                if (area) area.value = longTxt;
+                const block = $('longDescBlock'); if (block) block.style.display = 'block';
+                const res = $('result'); if (res) res.style.display = 'block';
+                try { window.__mrad_seed_applied = true; } catch(_) {}
+              }
+
+              // 4) NEW: persist BT context for submit
+              try {
+                sessionStorage.setItem('mrad_bt_item_id', String(seed.itemId || ''));
+                sessionStorage.setItem('mrad_bt_ticket', String(seed.ticket || ''));
+              } catch(_) {}
+
+              console.debug('[Intake] Applied Buy Ticket seed:', seed);
+            } catch (e) {
+              console.warn('[Intake] seed apply error', e);
+            }
+          }
+
+          // On load: apply BT seed if present (or when flags indicate), then clear it
+          document.addEventListener('DOMContentLoaded', function () {
+            try {
+              const urlSearch = (function () {
+                try { return window.top.location.search || location.search; } catch(e){ return location.search; }
+              })();
+              const qs = new URLSearchParams(urlSearch);
+              const fromBt      = qs.get('from') === 'bt';
+              const hasSeedFlag = qs.get('seed') === '1';
+              const ssFlag      = (function(){ try { return sessionStorage.getItem('mrad_autoload_bt_intake') === '1'; } catch(_){ return false; } })();
+
+              // Read whatever seed we have (don’t gate reading; we’ll decide below whether to apply)
+              let seed = null;
+              try {
+                const raw = sessionStorage.getItem('mrad_bt_intake_seed');
+                if (raw) seed = JSON.parse(raw);
+              } catch (_) {}
+
+              // Apply if:
+              //  - we have flags indicating a BT handoff, OR
+              //  - a seed actually exists (covers /dev ⇄ /exec or rare referrer/param edge cases)
+              const shouldApply = !!seed && (fromBt || hasSeedFlag || ssFlag || true);
+
+              if (shouldApply) {
+                // Clear the autoload flag so we don’t re-apply on refresh
+                try { sessionStorage.removeItem('mrad_autoload_bt_intake'); } catch(_){}
+                // Apply the seed to the form + Long Description block
+                applyBtIntakeSeed(seed);
+                updateVendooVisibility();
+                // Clear the seed so unrelated Intake visits won’t reuse stale data
+                try { sessionStorage.removeItem('mrad_bt_intake_seed'); } catch(_){}
+                console.debug('[Intake] BT seed applied & cleared.');
+              } else {
+                console.debug('[Intake] No BT seed or flags to apply.');
+              }
+            } catch (e) {
+              console.warn('[Intake] seed loader error', e);
+            }
+          });
+
+          function loadDraft(){
+            google.script.run
+              .withSuccessHandler(function(d){
+                if (!d || !d.ok) { alert('No draft found.'); return; }
+                applyDraftToForm(d);
+              })
+              .withFailureHandler(function(err){ alert(err && err.message ? err.message : String(err)); })
+              .apiIntake_GetLatestDraft();
+          }
+
+          // Keep listener for compatibility (button is hidden)
+          const __btn = document.getElementById('btnLoadDraft');
+          if (__btn) __btn.addEventListener('click', loadDraft);
+
+          
+          // Auto-apply when coming from Research (supports either ?draft=1 OR sessionStorage flag)
+          const urlSearch = (function(){ try { return window.top.location.search || location.search; } catch(e){ return location.search; } })();
+          const fromDraftQS = new URLSearchParams(urlSearch).get('draft') === '1';
+          const fromDraftSS = (function(){ try { return sessionStorage.getItem('mrad_autoload_draft') === '1'; } catch(_){ return false; } })();
+          const shouldAutoLoad = fromDraftQS || fromDraftSS;
+          
+          //if we have trouble auto loading from research we may need to revert this code back. 
+          if (shouldAutoLoad) {
+            try { sessionStorage.removeItem('mrad_autoload_draft'); } catch(_) {}
+            if (__btn) { __btn.click(); } else { loadDraft(); }
+          }
+
+          // ---- Submit
+          $('f').addEventListener('submit', function(ev){
+            ev.preventDefault();
+            const isBulk = (window.__intakeSubmitMode === 'bulk');
+            const addBtn = $('addBtn');
+            const bulkBtn = $('addBulkBtn');
+
+            // Button UX
+            if (isBulk) {
+              if (bulkBtn) { bulkBtn.disabled = true; bulkBtn.textContent = 'Adding to Bulk…'; }
+            } else {
+              if (addBtn) { addBtn.disabled = true; addBtn.textContent = 'Adding…'; }
+            }
+
+            // ---- Basic required checks (Section A)
+            if (!getVal('name').trim()){ alert('Item Name / Description is required.'); addBtn.disabled=false; addBtn.textContent='Add Item'; return; }
+            if (!getVal('price')){ alert('Price (USD) is required.'); addBtn.disabled=false; addBtn.textContent='Add Item'; return; }
+            if (!getVal('qty')){ alert('Qty is required.'); addBtn.disabled=false; addBtn.textContent='Add Item'; return; }
+            if (!getVal('costOfGoods')){ alert('Cost of Goods (USD) is required.'); addBtn.disabled=false; addBtn.textContent='Add Item'; return; }
+            if (!getVal('category')) { alert('Choose a Category.'); addBtn.disabled=false; addBtn.textContent='Add Item'; return; }
+            if (!getVal('storeLoc')) { alert('Choose a Store Location.'); addBtn.disabled=false; addBtn.textContent='Add Item'; return; }
+            if (!getVal('caseBinShelf').trim()){ alert('Case#/Bin#/Shelf# is required.'); addBtn.disabled=false; addBtn.textContent='Add Item'; return; }
+            if (!getVal('onlineLoc')){ alert('Sales Channel is required.'); addBtn.disabled=false; addBtn.textContent='Add Item'; return; }
+
+            // ---- Vendoo-only requirement (Category only)
+            const needsVendoo = /vendoo/i.test(getVal('onlineLoc')) || /both/i.test(getVal('onlineLoc'));
+            if (needsVendoo && !getVal('vendooCategory')) {
+              alert('Please choose a Vendoo Category.');
+              addBtn.disabled=false; addBtn.textContent='Add Item';
+              return;
+            }
+            const payload = {
+              category: getVal('category'),
+              condition: getVal('condition'),
+              brand:     getVal('brand'),
+              primaryColor:     getVal('primaryColor'),
+              name:      getVal('name').trim(),
+              price:     getVal('price'),
+              qty:       getVal('qty'),
+              storeLoc:  getVal('storeLoc').trim(),
+              caseBinShelf: getVal('caseBinShelf').trim(),
+              onlineLoc: getVal('onlineLoc').trim(),
+              status: '',
+              costOfGoods: getVal('costOfGoods'),
+              btItemId: (function(){ try { return sessionStorage.getItem('mrad_bt_item_id') || ''; } catch(_){ return ''; } })(),
+              // Shipping fields
+              shippingBox: getVal('shipBox'),
+              weightLb:    getVal('shipLb'),
+              weightOz:    getVal('shipOz'),
+              length:      getVal('shipLen'),
+              width:       getVal('shipWid'),
+              height:      getVal('shipHei'),
+              // NEW: Long Description (editable). If direct-intake + empty, inject the default (no duplicates).
+              longDescription: (function(){
+                  try {
+                    const seeded = !!window.__mrad_seed_applied;
+                    const area = $('vendooText');
+                    let txt = (area && area.value ? area.value.trim() : '');
+                    if (!txt && !seeded) txt = ''; // default only if we’re truly direct — add it via ensureDefaultClause
+                    return ensureDefaultClause(txt);
+                  } catch(_) {
+                    return '';
+                  }
+                })(),
+
+                vendooCategoryDisplay: getVal('vendooCategory'),
+                bulkAdd: isBulk
+
+              };
+
+            
+
+            const submissionId = genSubmissionId();
+
+            google.script.run
+              .withSuccessHandler(res=>{
+                
+                if (isBulk) {
+                  // Bulk path: do NOT show copy/result region; just reset form and toast
+                  try {
+                    document.getElementById('f').reset();
+                    // restore selects to placeholders
+                    ['category','storeLoc','onlineLoc','condition','brand','primaryColor','vendooCategory']
+                      .forEach(id => { const el=$(id); if (el) el.selectedIndex = 0; });
+                  } catch(_) {}
+
+                  setDisabledAll(false);
+                  if (addBtn) { addBtn.disabled = false; addBtn.textContent = 'Add Single Item'; }
+                  if (bulkBtn) { bulkBtn.disabled = false; bulkBtn.textContent = 'Add to Bulk List'; }
+                  window.__intakeSubmitMode = 'single';
+
+                  
+                  // NEW: jump to Bulk tab and refresh it (robust + paint-friendly)
+                  const switchAndRefresh = () => {
+                    try {
+                      // Prefer the exported helper…
+                      if (window.MRAD_selectIntakeTab) {
+                        window.MRAD_selectIntakeTab('bulk');
+                      } else {
+                        // …but if it isn't ready for any reason, force the DOM state.
+                        const tabBulk  = document.getElementById('tabBulk');
+                        const tabDraft = document.getElementById('tabDrafts');
+                        const paneBulk = document.getElementById('paneBulk');
+                        const paneDr   = document.getElementById('paneDrafts');
+                        if (tabBulk)  tabBulk.classList.add('active');
+                        if (tabDraft) tabDraft.classList.remove('active');
+                        if (paneBulk) paneBulk.classList.remove('hidden');
+                        if (paneDr)   paneDr.classList.add('hidden');
+                        if (paneDr)   paneDr.setAttribute('aria-hidden','true');
+                        if (paneBulk) paneBulk.setAttribute('aria-hidden','false');
+                      }
+                      // Remember user tab choice
+                      try { sessionStorage.setItem('mrad_intake_tab','bulk'); } catch(_) {}
+                      // Reload pending list
+                      if (window.MRAD_refreshBulkPending) window.MRAD_refreshBulkPending();
+                    } catch(_) {}
+                  };
+
+                  // Switch now, then again after the sheet finishes committing.
+                  switchAndRefresh();
+                  requestAnimationFrame(switchAndRefresh);
+                  setTimeout(switchAndRefresh, 250);
+
+                  // Let the UI paint before we show the alert.
+                  setTimeout(() => {
+                    alert('Item saved and queued for Bulk Entry (BULK_ADD_STATUS = "Pending").');
+                  }, 50);
+                  return;
+                }
+                
+                showResult(res);
+               // --- Append Label line 2 to the end of Long Description (Research)
+                try {
+                  const label2 = (res && res.labelLine) ? String(res.labelLine).trim() : '';
+                  const area   = $('vendooText'); // visible long description textarea
+                  let current  = (area && area.value ? area.value : (sessionStorage.getItem('mrad_last_longdesc') || '')).trim();
+
+                  if (label2) {
+                    // Only append if not already included
+                    const toAppend = `\n\n${label2}`;
+                    if (!current.includes(label2)) {
+                      current = current ? (current + toAppend) : label2;
+                    }
+                    if (area) {
+                      area.value = current;
+                      $('longDescBlock').style.display = 'block'; // ensure it’s visible
+                      $('result').style.display = 'block';
+                    }
+                    sessionStorage.setItem('mrad_last_longdesc', current);
+                  }
+                } catch (_) {}
+
+                setDisabledAll(true);
+                addBtn.style.display='none';
+                ensurePostActions(res.sku, payload);
+              })
+              .withFailureHandler(err=>{
+                alert('Add failed: ' + (err && err.message ? err.message : err));
+                addBtn.disabled=false; addBtn.textContent='Add Item';
+              })
+              .addItemAndReturnLabel(payload, submissionId);
+
+              function gotoReset(){
+                if (isBulk) {
+                  if (bulkBtn) { bulkBtn.disabled=false; bulkBtn.textContent='Add to Bulk List'; }
+                } else {
+                  if (addBtn)  { addBtn.disabled=false;  addBtn.textContent='Add Single Item'; }
+                }
+              }
+          });
+
+          // ---- Post-submit actions (edit/delete/copy) + Vendoo prompt
+          function ensurePostActions(sku, payload){
+            const addAnother = $('addAnother'), editBtn = $('editItem'), deleteBtn = $('deleteItem'), copyForLbl=$('copyForLabel');
+            editBtn.disabled=false; editBtn.textContent='Enable Edit';
+            deleteBtn.disabled=false; deleteBtn.textContent='Delete This Item';
+            setDisabledAll(true); $('category').disabled=true;
+
+            addAnother.onclick=()=>{
+              document.getElementById('f').reset();
+              setDisabledAll(false);
+              $('result').style.display='none';
+              $('longDescBlock').style.display='none';
+              const addBtn=$('addBtn'); addBtn.style.display=''; addBtn.disabled=false; addBtn.textContent='Add Item';
+              editBtn.disabled=false; editBtn.textContent='Enable Edit';
+              deleteBtn.disabled=false; deleteBtn.textContent='Delete This Item';
+              // force Category back to placeholder
+              $('category').selectedIndex = 0;
+              $('category').focus();
+            };
+
+            editBtn.onclick=()=>{
+              setDisabledAll(false); $('category').disabled=true; editBtn.textContent='Save Changes';
+              editBtn.onclick=()=>{
+                const update = {
+                  sku,
+                  category:getVal('category'),
+                  condition:getVal('condition'),
+                  brand:getVal('brand'),
+                  primaryColor:getVal('primaryColor'),
+                  name:getVal('name').trim(),
+                  price:getVal('price'),
+                  qty:getVal('qty'),
+                  storeLoc:getVal('storeLoc').trim(),
+                  caseBinShelf:getVal('caseBinShelf').trim(),
+                  onlineLoc:getVal('onlineLoc').trim(),
+                  status:''
+                };
+                if (!update.caseBinShelf){ alert('Case#/Bin#/Shelf# is required.'); editBtn.disabled=false; editBtn.textContent='Save Changes'; return; }
+                editBtn.disabled=true; editBtn.textContent='Saving…';
+                google.script.run
+                  .withSuccessHandler(res=>{
+                    if(res && res.ok){
+                      $('r-name').textContent = res.name || '';
+                      $('r-price').textContent = res.priceDisplay || '';
+                      $('r-label').textContent = res.labelLine || '';
+                    }
+                    setDisabledAll(true); $('category').disabled=true; editBtn.disabled=false; editBtn.textContent='Enable Edit';
+                    alert('Item updated.');
+                  })
+                  .withFailureHandler(err=>{ alert('Update failed: ' + (err && err.message ? err.message : err)); editBtn.disabled=false; editBtn.textContent='Save Changes'; })
+                  .updateItemBySku(update);
+              };
+            };
+
+            deleteBtn.onclick=()=>{
+              if(!confirm('Delete this item from the sheet?')) return;
+              deleteBtn.disabled=true; deleteBtn.textContent='Deleting…';
+              google.script.run
+                .withSuccessHandler(()=>{ alert('Item deleted.'); addAnother.click(); })
+                .withFailureHandler(err=>{ alert('Delete failed: ' + (err && err.message ? err.message : err)); deleteBtn.disabled=false; deleteBtn.textContent='Delete This Item'; })
+                .deleteItemBySku(sku);
+            };
+
+            copyForLbl.onclick=()=>{
+              const price = $('r-price').textContent.trim();
+              const line2 = $('r-label').textContent.trim();
+              const ch = (document.getElementById('onlineLoc')?.value || '').toLowerCase();
+              const needsVEN = ch.includes('vendoo') || ch.includes('both');
+              const line1 = needsVEN ? (price ? `${price} VEN` : 'VEN') : price;
+              navigator.clipboard.writeText(`${line1}\n${line2}`)
+                .then(()=>alert('Label text copied. Paste into Xeasy Label.\n(Set line 1 larger in your template.)'));
+            };
+
+            // Vendoo prompt & button state (research text only; no SKU accumulation)
+            (function(){
+              // Always use Research text from sessionStorage; do not merge in any prior result/label lines.
+              const researchText = (sessionStorage.getItem('mrad_last_longdesc') || '').trim();
+
+              if (vendooChannelActive() && researchText) {
+                const area = $('vendooText'); if (area) area.value = researchText;
+                const block = $('longDescBlock'); if (block) block.style.display = 'block';
+              } else {
+                const block = $('longDescBlock'); if (block) block.style.display = 'none';
+              }
+
+              // Show/hide Vendoo section depending on current channel
+              updateVendooVisibility();
+
+              // Wire and gate the Vendoo button
+              const sendBtn = $('btnVendoo');
+              if (sendBtn) {
+                sendBtn.onclick = () => {
+                  try {
+                    const p = buildVendooPayload(sku, payload);
+                    openVendooAndSend(p);
+                  } catch (e) {
+                    alert('Could not prepare Vendoo data: ' + (e && e.message ? e.message : e));
+                  }
+                };
+              }
+
+              // Update visibility + enabled state based on channel and Vendoo field readiness
+              updateVendooButtonState(sku, payload);
+
+              // Re-evaluate enablement when user fills Vendoo fields post-submit
+              ['condition','brand','primaryColor','vendooCategory'].forEach(id=>{
+                const el = $(id);
+                if (el && !el.__mrad_vready) {
+                  el.addEventListener('change', () => updateVendooButtonState(sku, payload));
+                  el.__mrad_vready = true;
+                }
+              });
+
+              const vtxt = $('vendooText');
+              if (vtxt && !vtxt.__mrad_vready){
+                vtxt.addEventListener('input', () => updateVendooButtonState(sku, payload));
+                vtxt.__mrad_vready = true;
+              }
+
+              ['shipBox','shipLb','shipOz','shipLen','shipWid','shipHei'].forEach(id=>{
+                const el = $(id);
+                if (!el || el.__mrad_vready) return;
+                const evt = (id === 'shipBox') ? 'change' : 'input';
+                el.addEventListener(evt, () => updateVendooButtonState(sku, payload));
+                el.__mrad_vready = true;
+              });
+
+            })();
+          }
+
+          // Copy helpers & diagnostics
+          const copyTextById=id=>{ const t=$(id).textContent; if(t) navigator.clipboard.writeText(t); };
+          $('copySku').onclick=()=>copyTextById('r-sku');
+          $('copyName').onclick=()=>copyTextById('r-name');
+          $('copyPrice').onclick=()=>copyTextById('r-price');
+          $('copyLabel').onclick=()=>copyTextById('r-label');
+
+          // ---- Business details (for clipboard)
+          const BIZ_DETAILS = [
+            "We have thousands of vintage to modern toys in store. Come Visit us and find your next treasure!",
+            "Mad Rad Retro Toys",
+            "5026 Kipling Street",
+            "Wheat Ridge, CO 80033",
+            "Mon-Sat 10AM-6PM",
+            "Sun 11AM-5PM",
+            "303-960-2117"
+          ].join("\n");
+
+          const copyBizBtn = $('copyBiz');
+          if (copyBizBtn) copyBizBtn.onclick = () => {
+            navigator.clipboard.writeText(BIZ_DETAILS)
+              .then(() => alert('Business details copied.'));
+          };
+
+          const copyVendooBtn = $('copyVendoo');
+          if (copyVendooBtn) copyVendooBtn.onclick = ()=>{ const t = $('vendooText').value || ''; if(!t){ alert('No long description to copy.'); return; } navigator.clipboard.writeText(t).then(()=>alert('Copied.')); };
+
+          $('diagBtn').onclick=()=>{ google.script.run.withSuccessHandler(info=>{
+              if(info && !info.error){
+                alert(`Connected to: ${info.spreadsheetName}\nCategories: ${info.categoryCount}\nStore Locations: ${info.storeCount}\nSales Channels: ${info.onlineCount}`);
+              } else { alert('Diag error: ' + (info && info.error || 'unknown')); }
+            }).debugDiag_(); };
+
+            
+            
+            // --- Phase 2 tabs ---
+            (function tabsInit(){
+              const $ = id => document.getElementById(id);
+
+              function selectTab(which){
+                const isBulk   = which === 'bulk';
+                const tabBulk  = $('tabBulk');
+                const tabDraft = $('tabDrafts');
+                const paneBulk = $('paneBulk');
+                const paneDr   = $('paneDrafts');
+
+                [tabBulk, tabDraft].forEach(btn => btn && btn.classList.remove('active'));
+                if (tabBulk)  tabBulk.classList.toggle('active',  isBulk);
+                if (tabDraft) tabDraft.classList.toggle('active', !isBulk);
+
+                if (paneBulk) paneBulk.classList.toggle('hidden', !isBulk);
+                if (paneDr)   paneDr.classList.toggle('hidden',   isBulk);
+                if (paneDr)   paneDr.setAttribute('aria-hidden', String(isBulk));
+                if (paneBulk) paneBulk.setAttribute('aria-hidden', String(!isBulk));
+
+                try { sessionStorage.setItem('mrad_intake_tab', isBulk ? 'bulk' : 'drafts'); } catch(_) {}
+              }
+              window.MRAD_selectIntakeTab = selectTab; // <-- export
+
+              // Wire buttons once DOM elements exist
+              document.addEventListener('DOMContentLoaded', () => {
+                const tabBulk  = $('tabBulk');
+                const tabDraft = $('tabDrafts');
+                if (tabBulk && !tabBulk.__wired) {
+                  tabBulk.__wired = true;
+                  tabBulk.addEventListener('click', () => selectTab('bulk'));
+                }
+                if (tabDraft && !tabDraft.__wired) {
+                  tabDraft.__wired = true;
+                  tabDraft.addEventListener('click', () => selectTab('drafts'));
+                }
+
+                // Default to Bulk (Phase 2 requirement); honor last selection if present
+                let last = 'bulk';
+                try { last = sessionStorage.getItem('mrad_intake_tab') || 'bulk'; } catch(_) {}
+                selectTab(last === 'drafts' ? 'drafts' : 'bulk');
+              });
+            })();
+            
+
+            
+            // --- Phase 2: Bulk Entry (Pending) list ---
+            (function bulkListInit(){
+              const $ = id => document.getElementById(id);
+
+              function fmtMoney(v){
+                const n = Number(v);
+                return (Number.isFinite(n)) ? ('$' + n.toFixed(2)) : '—';
+              }
+
+              function renderBulkPending(items){
+                const wrap = document.getElementById('bulkWrap');
+                const note = document.getElementById('bulkNote');
+                try {
+                  if (!Array.isArray(items) || items.length === 0) {
+                    if (note) note.textContent = 'Nothing pending.';
+                    if (wrap) wrap.innerHTML = '';
+                  } else {
+                    if (note) note.textContent = '';
+
+                    // Newest first if .row exists
+                    let sorted = Array.isArray(items) ? [...items] : [];
+                    if (sorted.length) {
+                      if (sorted[0].row != null) {
+                        sorted.sort((a,b) => (b.row|0) - (a.row|0));
+                      } else {
+                        sorted.reverse();
+                      }
+                    }
+
+                    // Encourage running bulk when queue is large
+                    const prog = document.getElementById('bulkProg');
+                    if (prog) {
+                      prog.textContent = (sorted.length >= 30)
+                        ? `You have ${sorted.length} Pending items — consider running Bulk now.`
+                        : '';
+                    }
+
+                    const rows = sorted.map(it => {
+                      const name = String(it.name || '').replace(/</g, '&lt;');
+
+                      const vendooLink = (function (u) {
+                        u = String(u || '').trim();
+                        return u ? `<a href="${u}" target="_blank" rel="noopener">Open</a>` : '—';
+                      })(it.vendooUrl);
+
+                      const xeasyLink = (function (u) {
+                        u = String(u || '').trim();
+                        return u ? `<a href="${u}" target="_blank" rel="noopener">Open</a>` : '—';
+                      })(it.xeasySheetUrl);
+
+                      const status = String(it.status || '—');
+                      const result = String(it.bulkVendooResult || '').replace(/</g, '&lt;') || '—';
+
+                      return `
+                        <tr>
+                          <td class="mono" style="width:130px">${it.sku || ''}</td>
+                          <td>${name}</td>
+                          <td style="width:110px">${status}</td>
+                          <td style="width:150px">${vendooLink}</td>
+                          <td style="width:180px">${xeasyLink}</td>
+                          <td style="width:220px">${result}</td>
+                          <td style="width:120px">
+                            <button class="btn tiny ghost" type="button" data-dup-sku="${it.sku || ''}">Duplicate</button>
+                          </td>
+                        </tr>`;
+                    }).join('');
+
+                    wrap.innerHTML = `
+                      <table class="recent">
+                        <thead>
+                          <tr>
+                            <th style="width:130px">SKU</th>
+                            <th>Name</th>
+                            <th style="width:110px">Status</th>
+                            <th style="width:150px">Vendoo URL</th>
+                            <th style="width:180px">Xeasy Label Sheet</th>
+                            <th style="width:220px">BULK_VENDOO_RESULT</th>
+                            <th style="width:120px">Duplicate</th>
+                          </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                      </table>`;
+
+                    // Optional: show the count on the tab label
+                    const tabBulk = document.getElementById('tabBulk');
+                    if (tabBulk) tabBulk.textContent = `Bulk Entry (${items.length})`;
+                  }
+
+                  // ✅ Always wire the Duplicate click handler AFTER rendering, only once
+                  if (wrap && !wrap.__mrad_dup_wired) {
+                    wrap.addEventListener('click', function(ev){
+                      const btn = ev.target && ev.target.closest && ev.target.closest('button[data-dup-sku]');
+                      if (!btn) return;
+                      const sku = String(btn.getAttribute('data-dup-sku') || '').trim();
+                      if (!sku) return;
+                      duplicateFromSku(sku);
+                    });
+                    wrap.__mrad_dup_wired = true;
+                  }
+                } catch(e){
+                  if (note) note.textContent = 'Render error: ' + (e && e.message ? e.message : String(e));
+                  console.error('[BulkPending] render error', e);
+                }
+              }
+
+              // Call the server to get pending bulk items from SKU Tracker
+              // Backend API exists in your codebase: apiIntake_ListBulkPending(limit)
+              function fetchBulkPending(){
+              try {
+                google.script.run
+                  .withSuccessHandler(res => {
+                    if (res && res.ok && Array.isArray(res.items)) {
+                      renderBulkPending(res.items);
+                      $('bulkNote').textContent = res.items.length ? '' : 'Nothing pending.';
+                    } else {
+                      $('bulkNote').textContent = 'Unable to load pending items.';
+                    }
+                  })
+                  .withFailureHandler(err => {
+                    const msg = (err && err.message) ? err.message : 'Unknown error';
+                    $('bulkNote').textContent = 'Error loading pending items: ' + msg;
+                    console.error('[BulkPending] failure', msg);
+                  })
+                  .apiIntake_ListBulkPending(200);
+              } catch (e) {
+                console.error('[BulkPending] call setup error', e);
+                const note = document.getElementById('bulkNote');
+                if (note) note.textContent = 'Pending list setup error: ' + (e && e.message ? e.message : String(e));
+              }
+            }
+
+            // expose a global refresher so submit flow can call it
+            window.MRAD_refreshBulkPending = fetchBulkPending;
+
+            // initial load
+            fetchBulkPending();
+
+            // ---------- Bulk runner & export ----------
+              const state = {
+                running: false,
+                queue: [],
+                idx: 0,
+                win: null,
+                timer: null
+              };
+
+              function updateProgress(){
+                const el = document.getElementById('bulkProg');
+                if (!el) return;
+                if (!state.running) {
+                  el.textContent = el.textContent || '';
+                } else {
+                  el.textContent = `Processing ${state.idx + 1} of ${state.queue.length}…`;
+                }
+              }
+
+              function buildVendooPayloadFromItem(it){
+                const skuLine = [it.sku, it.storeLoc, it.caseBinShelf].filter(Boolean).join(' ');
+                const display = String(it.vendooCategoryDisplay || '').trim();
+                const categoryStr =
+                  (window.VENDOO_PATH_MAP && display && window.VENDOO_PATH_MAP[display]) ||
+                  "Toys & Hobbies > Action Figures & Accessories > Action Figures";
+                
+                // NEW: read the bulk test-mode checkbox (1 => skip saving in Vendoo)
+                const noCredit = (document.getElementById('bulkNoCredit')?.checked ? '1' : '0');
+                
+                return {
+                  __token: 'MRAD_VENDOO_V1',
+                  title: it.name || '',
+                  // Per your requirement: use the FULL stored Long_Description for bulk
+                  description: String(it.longDescriptionFull || ''),
+                  brand: it.brand || '',
+                  primaryColor: it.primaryColor || '',
+                  condition: it.condition || '',
+                  sku: skuLine,
+                  zip: '80033',
+                  quantity: String(it.qty || '1'),
+                  category: categoryStr,
+                  price: String(it.price || ''),
+                  costOfGoods: String(it.costOfGoods || ''),
+                  shippingBox: String(it.shippingBox || ''),
+                  weightLb: String(it.weightLb || ''),
+                  weightOz: String(it.weightOz || ''),
+                  length:   String(it.length  || ''),
+                  width:    String(it.width   || ''),
+                  height:   String(it.height  || ''),
+
+                  // NEW: honored by the Vendoo userscript to skip "Save"
+                  noCredit: noCredit
+                };
+              }
+
+              function step(){
+                if (!state.running) return;
+                if (state.idx >= state.queue.length) {
+                  state.running = false;
+                  const btnStart = document.getElementById('bulkStart');
+                  const btnStop  = document.getElementById('bulkStop');
+                  const msg      = document.getElementById('bulkMsg');
+                  if (btnStart) { btnStart.disabled = false; btnStart.textContent = 'Start Bulk ›'; }
+                  if (btnStop)  { btnStop.disabled  = true;  btnStop.style.display = 'none'; }
+                  updateProgress();
+                  if (msg) msg.textContent = 'Bulk complete.';
+                  fetchBulkPending();
+                  return;
+                }
+
+                const it = state.queue[state.idx];
+                const testMode = !!document.getElementById('bulkNoCredit')?.checked;
+
+                // Mark In Progress only when we intend to actually save
+                if (!testMode) {
+                  try { google.script.run.apiBulk_SetStatus(it.sku, 'In Progress', ''); } catch(_){}
+                }
+
+                const payload = buildVendooPayloadFromItem(it);
+                try {
+                  state.win = openVendooAndSend(payload);
+                } catch (e) {
+                  console.error('Open Vendoo failed', e);
+                  if (!testMode) { try { google.script.run.apiBulk_SetStatus(it.sku, 'Error', 'Open failed'); } catch(_){ } }
+                  state.idx++; updateProgress(); setTimeout(step, 300);
+                  return;
+                }
+
+                // NEW: In test mode, we do NOT wait for Vendoo to save (no credits used).
+                // Just advance to the next item after a short pause.
+                if (testMode) {
+                  const m = document.getElementById('bulkMsg');
+                  if (m) m.textContent = 'Bulk test mode: filled Vendoo without saving.';
+                  state.idx++; updateProgress();
+                  setTimeout(step, 500);
+                  return;
+                }
+
+                // Normal (credit-using) mode: wait up to 2 minutes for Vendoo to save.
+                state.timer = setTimeout(function(){
+                  if (!state.running) return;
+                  console.warn('Timeout waiting for Vendoo save; marking Error.');
+                  try { google.script.run.apiBulk_SetStatus(it.sku, 'Error', 'Timeout waiting for save'); } catch(_){}
+                  state.idx++; updateProgress(); step();
+                }, 180000);
+                updateProgress();
+              }
+
+              // Listen for Vendoo "saved" events globally and advance the queue
+              window.addEventListener('message', function(ev){
+                if (!state.running) return;
+                if (!(ev && ev.data && ev.data.type === 'mrad_vendoo_saved')) return;
+
+                // Close timeout
+                if (state.timer) { try { clearTimeout(state.timer); } catch(_){ } state.timer = null; }
+
+                // Mark completed
+                const it = state.queue[state.idx];
+                google.script.run.apiBulk_SetStatus(it.sku, 'Completed', '');
+
+                // Advance
+                state.idx++; updateProgress(); setTimeout(step, 300);
+              }, true);
+
+              // Listen for Vendoo explicit error and advance the queue
+              window.addEventListener('message', function(ev){
+                if (!state.running) return;
+                if (!(ev && ev.data && ev.data.type === 'mrad_vendoo_error')) return;
+
+                // Close timeout if any
+                if (state.timer) { try { clearTimeout(state.timer); } catch(_){ } state.timer = null; }
+
+                // Mark Error with the reason and advance
+                const it = state.queue[state.idx];
+                const reason = String(ev.data.reason || 'Vendoo fill/save failed');
+                try { google.script.run.apiBulk_SetStatus(it.sku, 'Error', reason); } catch(_){}
+
+                state.idx++; updateProgress(); setTimeout(step, 300);
+              }, true);
+
+               // Start/Stop/Export buttons
+              document.addEventListener('DOMContentLoaded', function(){
+                const btnStart  = document.getElementById('bulkStart');
+                const btnStop   = document.getElementById('bulkStop');
+                const btnExport = document.getElementById('bulkExport');
+                const msg       = document.getElementById('bulkMsg');
+
+                if (btnStart && !btnStart.__wired) {
+                  btnStart.__wired = true;
+                  btnStart.addEventListener('click', function(){
+                    // Visual state
+                    btnStart.disabled = true;
+                    btnStart.textContent = 'Running…';
+                    btnStop.disabled  = false;
+                    btnStop.style.display = 'inline-block'; // show Stop
+
+                    const testMode = !!document.getElementById('bulkNoCredit')?.checked;
+                    if (msg) msg.textContent = testMode
+                      ? 'Starting bulk (test mode — won’t save in Vendoo)…'
+                      : 'Starting bulk…';
+
+                    // Load full queue from server
+                    google.script.run
+                      .withSuccessHandler(function(res){
+                        if (!(res && res.ok && Array.isArray(res.items) && res.items.length)) {
+                          if (msg) msg.textContent = 'No Pending items to process.';
+                          btnStart.disabled = false; btnStart.textContent = 'Start Bulk ›';
+                          btnStop.disabled = true; btnStop.style.display = 'none';
+                          return;
+                        }
+                        state.queue = res.items;
+                        state.idx = 0;
+                        state.running = true;
+
+                        if (state.queue.length >= 30) {
+                          if (msg) msg.textContent = `Heads up: ${state.queue.length} items pending; consider smaller batches.`;
+                        } else {
+                          if (msg) msg.textContent = '';
+                        }
+                        updateProgress();
+                        step();
+                      })
+                      .withFailureHandler(function(err){
+                        if (msg) msg.textContent = 'Could not load Pending items: ' + (err && err.message ? err.message : err);
+                        btnStart.disabled = false; btnStart.textContent = 'Start Bulk ›';
+                        btnStop.disabled = true; btnStop.style.display = 'none';
+                      })
+                      .apiBulk_ListPendingFull(500);
+                  });
+                }
+
+                if (btnStop && !btnStop.__wired) {
+                  btnStop.__wired = true;
+                  btnStop.addEventListener('click', function(){
+                    // Visual: stopping
+                    btnStop.textContent = 'Stopping…';
+                    btnStart.disabled = true;
+                    btnStop.disabled  = true;
+                    if (msg) msg.textContent = 'Stopping after current item…';
+
+                    // Signal runner to stop after current in-flight item
+                    state.running = false;
+                    if (state.timer) { try { clearTimeout(state.timer); } catch(_){} state.timer = null; }
+                    try { if (state.win && !state.win.closed) state.win.focus(); } catch(_){}
+
+                    // Return UI to idle
+                    btnStart.disabled = false; btnStart.textContent = 'Start Bulk ›';
+                    btnStop.disabled  = true;  btnStop.textContent = 'Stop';
+                    btnStop.style.display = 'none';
+                    updateProgress();
+                    if (msg) msg.textContent = 'Stopped.';
+                  });
+                }
+
+                if (btnExport && !btnExport.__wired) {
+                  btnExport.__wired = true;
+                  btnExport.addEventListener('click', function(){
+                    // Visual feedback
+                    btnExport.disabled = true;
+                    const oldLabel = btnExport.textContent;
+                    btnExport.textContent = 'Building…';
+                    if (msg) msg.textContent = 'Building Xeasy sheet from Pending…';
+
+                    google.script.run
+                      .withSuccessHandler(function(res){
+                        btnExport.disabled = false;
+                        btnExport.textContent = oldLabel;
+
+                        if (!(res && res.ok)) {
+                          if (msg) msg.textContent = 'Failed to build sheet.';
+                          alert(res && res.error ? res.error : 'Failed to build Xeasy sheet.');
+                          return;
+                        }
+                        const n = Number(res.count || 0);
+                        if (n === 0) {
+                          if (msg) msg.textContent = 'No Pending items to include.';
+                        } else {
+                          if (msg) msg.textContent = `Created Xeasy sheet for ${n} item(s). Opening…`;
+                        }
+
+                        if (res.url) {
+                          try { window.open(res.url, '_blank'); } catch(_){}
+                        }
+
+                        // Refresh list so XEASY_SHEET_URL shows up
+                        try { fetchBulkPending(); } catch(_){}
+                      })
+                      .withFailureHandler(function(err){
+                        btnExport.disabled = false;
+                        btnExport.textContent = oldLabel;
+                        const m = (err && err.message) ? err.message : String(err);
+                        if (msg) msg.textContent = 'Export failed: ' + m;
+                        alert('Export failed: ' + m);
+                      })
+                      .apiBulk_CreateXeasySheet(); // server builds the sheet and returns url/count
+                  });
+                }
+
+                // ----- NEW: Copy for Xeasy (3 columns) -----
+                const btnCopy = document.getElementById('bulkCopyXeasy');
+                if (btnCopy && !btnCopy.__wired) {
+                  btnCopy.__wired = true;
+                  btnCopy.addEventListener('click', function () {
+                    const msg = document.getElementById('bulkMsg');
+                    const oldText = btnCopy.textContent;
+                    btnCopy.disabled = true;
+                    btnCopy.textContent = 'Copying…';
+                    if (msg) msg.textContent = 'Gathering Pending items…';
+
+                    // Helper: price to "$0.00" or ""
+                    function priceText(v) {
+                      const n = Number(v);
+                      return Number.isFinite(n) ? ('$' + n.toFixed(2)) : '';
+                    }
+                    // Helper: clipboard with robust fallback
+                    function copyToClipboard(text) {
+                      function fallback() {
+                        try {
+                          const ta = document.createElement('textarea');
+                          ta.value = text;
+                          ta.setAttribute('readonly', '');
+                          ta.style.position = 'fixed';
+                          ta.style.opacity = '0';
+                          document.body.appendChild(ta);
+                          ta.select(); ta.setSelectionRange(0, 999999);
+                          const ok = document.execCommand('copy');
+                          document.body.removeChild(ta);
+                          return ok;
+                        } catch (_) { return false; }
+                      }
+                      if (navigator.clipboard && navigator.clipboard.writeText) {
+                        return navigator.clipboard.writeText(text).then(() => true).catch(() => fallback());
+                      }
+                      return Promise.resolve(fallback());
+                    }
+
+                    // Fetch full pending dataset the same way Bulk runner does
+                    google.script.run
+                      .withSuccessHandler(function (res) {
+                        try {
+                          const items = (res && res.items) || [];
+                          if (!items.length) {
+                            if (msg) msg.textContent = 'No Pending / In Progress items to copy.';
+                            return;
+                          }
+
+                          // Build rows: Line1, Line2, Line3
+                          const rows = items.map(it => {
+                            const price = priceText(it.price);
+                            const online = String(it.onlineLoc || '').toLowerCase();
+                            const needsVEN = online.includes('vendoo') || online.includes('both');
+
+                            // Line 1: "$12.00 VEN" if Vendoo/Both; else just "$12.00" (or blank)
+                            const line1 = needsVEN ? ((price ? (price + ' ') : '') + 'VEN') : (price || '');
+
+                            // Line 2: "SKU Store Case"
+                            const line2 = [it.sku, it.storeLoc, it.caseBinShelf].filter(Boolean).join(' ');
+
+                            // Line 3: first 20 chars of the title (collapse whitespace)
+                            const title20 = String(it.name || '').replace(/\s+/g, ' ').trim().slice(0, 20);
+
+                            return [line1, line2, title20];
+                          });
+
+                          // TSV: header + rows (tabs between columns; newline per row)
+                          const header = ['Line 1', 'Line 2', 'Line 3'];
+                          const sanitize = s => String(s || '').replace(/\t/g, ' ').replace(/\r?\n/g, ' ');
+                          const tsv = [header, ...rows]
+                            .map(r => r.map(sanitize).join('\t'))
+                            .join('\n');
+
+                          copyToClipboard(tsv).then(ok => {
+                            if (ok) {
+                              const n = rows.length;
+                              if (msg) msg.textContent = `Copied ${n} row(s) to clipboard. Open Excel and paste (Ctrl/Cmd+V).`;
+                              alert(`Copied ${n} rows.\n\nPaste into Excel/Google Sheets — it will fill 3 columns.`);
+                            } else {
+                              if (msg) msg.textContent = 'Clipboard blocked. Showing data to copy manually.';
+                              // Fallback: show a modalish prompt with the data selected
+                              const ta = document.createElement('textarea');
+                              ta.value = tsv;
+                              ta.style.width = '100%';
+                              ta.style.height = '200px';
+                              ta.style.whiteSpace = 'pre';
+                              document.body.appendChild(ta);
+                              ta.focus(); ta.select();
+                              alert('Press Ctrl/Cmd+C to copy, then paste in Excel.');
+                            }
+                          });
+                        } finally {
+                          btnCopy.disabled = false;
+                          btnCopy.textContent = oldText;
+                        }
+                      })
+                      .withFailureHandler(function (err) {
+                        const m = (err && err.message) ? err.message : String(err);
+                        if (msg) msg.textContent = 'Copy failed: ' + m;
+                        alert('Copy failed: ' + m);
+                        btnCopy.disabled = false;
+                        btnCopy.textContent = oldText;
+                      })
+                      .apiBulk_ListPendingFull(500); // reuse existing backend
+                  });
+                }
+
+              });
+              
+
+            })();
+            
+
+
+            // ---- NEW: Recent Drafts list (bottom) ---------------------------------
+            function renderRecentDrafts(list){
+              const wrap = $('recentWrap'); const note = $('recentNote');
+              try {
+                console.log('[RecentDrafts] render list=', list);
+                if (!Array.isArray(list) || list.length === 0) {
+                  note.textContent = 'No drafts yet.';
+                  wrap.innerHTML = '';
+                  return;
+                }
+                note.textContent = '';
+
+                const rows = list.map((d,i) => {
+                  // Accept both normalized timestampMs and older timestamp field
+                  let whenText = '';
+                  try {
+                    if (d.timestampMs != null) {
+                      whenText = new Date(Number(d.timestampMs)).toLocaleString();
+                    } else if (d.timestamp) {
+                      const dt = (d.timestamp instanceof Date) ? d.timestamp : new Date(d.timestamp);
+                      whenText = isNaN(dt) ? '' : dt.toLocaleString();
+                    }
+                  } catch(_) {}
+
+                  const price = (d.altPrice!=null && d.altPrice!=='') ? Number(d.altPrice)
+                              : (d.recPrice!=null && d.recPrice!=='' ? Number(d.recPrice) : null);
+                  const pText = (price!=null && isFinite(price)) ? ('$'+price.toFixed(2)) : '—';
+
+                  const title = String(d.shortDesc || '').replace(/</g,'&lt;');
+                  return `
+                    <tr>
+                      <td class="mono">${whenText}</td>
+                      <td>${title}</td>
+                      <td class="right">${pText}</td>
+                      <td class="right"><button class="btn ghost tiny" data-idx="${i}">Load</button></td>
+                    </tr>`;
+                }).join('');
+
+                wrap.innerHTML = `
+                  <table class="recent">
+                    <thead><tr><th style="width:220px">Saved</th><th>Title</th><th class="right" style="width:110px">Price</th><th style="width:90px"></th></tr></thead>
+                    <tbody>${rows}</tbody>
+                  </table>
+                `;
+
+                wrap.querySelectorAll('button[data-idx]').forEach(btn=>{
+                  btn.addEventListener('click', ev=>{
+                    const idx = Number(ev.currentTarget.getAttribute('data-idx'));
+                    const d = list[idx];
+                    console.log('[RecentDrafts] Load clicked idx=', idx, 'draft=', d);
+                    applyDraftToForm({
+                      shortDesc: d.shortDesc || '',
+                      longDesc:  d.longDesc  || '',
+                      recPrice:  d.recPrice,
+                      altPrice:  d.altPrice
+                    });
+                  });
+                });
+              } catch (e) {
+                console.error('[RecentDrafts] render error', e);
+                note.textContent = 'Render error: ' + (e && e.message ? e.message : String(e));
+              }
+            }
+
+            // Fetch + log every step; surface server logs to UI
+            try {
+              google.script.run
+                .withSuccessHandler(res => {
+                  try { console.log('[RecentDrafts] response:', res); } catch(_) {}
+
+                  // Accept both _logs (new) and log (older build)
+                  const logs = (res && (res._logs || res.log)) || [];
+                  const lastLog = logs.length ? logs[logs.length-1] : '';
+
+                  if (res && (res.ok === true || Array.isArray(res.drafts))) {
+                    renderRecentDrafts(res.drafts || []);
+                    $('recentNote').textContent = (res.drafts && res.drafts.length) ? '' : 'No drafts yet.';
+                  } else {
+                    const msg = res && (res.error || lastLog) ? (': ' + (res.error || lastLog)) : '.';
+                    $('recentNote').textContent = 'Unable to load recent drafts' + msg;
+                    try { if (logs.length) console.warn('[RecentDrafts _logs]', ...logs); } catch(_) {}
+                  }
+                })
+                .withFailureHandler(err => {
+                  const msg = (err && err.message) ? err.message : 'Unknown error';
+                  $('recentNote').textContent = 'Error loading recent drafts: ' + msg;
+                  try { console.error('[RecentDrafts failure]', msg); } catch(_) {}
+                })
+                .apiIntake_GetRecentDrafts(20);
+            } catch (e) {
+              console.error('[RecentDrafts] call setup error', e);
+              $('recentNote').textContent = 'Recent drafts setup error: ' + (e && e.message ? e.message : String(e));
+            }
+
+            addBulkBtnWire(); // NEW: enable "Add to Bulk List" click handler
+
+            /* ===== Bulk runner UX helpers (no popups, prevent double-clicks) ===== */
+            (function(){
+              function $(id){ return document.getElementById(id); }
+
+              function setBulkMsg(msg){
+                const el = $('bulkMsg'); if (!el) return;
+                el.textContent = String(msg||'');
+              }
+              function setBulkButtons(state){
+                const start = $('bulkStart'), stop = $('bulkStop');
+                if (!start || !stop) return;
+
+                if (state === 'idle'){
+                  start.disabled = false; start.textContent = 'Start Bulk ›';
+                  stop.disabled = true;  stop.textContent  = 'Stop';
+                  stop.style.display = 'none';
+                } else if (state === 'starting'){
+                  start.disabled = true; start.textContent = 'Starting…';
+                  stop.disabled = true;  stop.textContent  = 'Stop';
+                  stop.style.display = 'inline-block';
+                } else if (state === 'running'){
+                  start.disabled = true; start.textContent = 'Running…';
+                  stop.disabled = false; stop.textContent  = 'Stop';
+                  stop.style.display = 'inline-block';
+                } else if (state === 'stopping'){
+                  start.disabled = true;
+                  stop.disabled = true;  stop.textContent = 'Stopping…';
+                  stop.style.display = 'inline-block';
+                }
+              }
+
+              // Expose small API used by existing bulk logic
+              window.__mrad_bulkUX = {
+                setMsg: setBulkMsg,
+                setButtons: setBulkButtons
+              };
+
+              // Initialize to idle on DOM ready
+              document.addEventListener('DOMContentLoaded', function(){
+                setBulkButtons('idle');
+                setBulkMsg('');
+              });
+            })();
+
+        })();
+        
+
+      </script>
+    </body>
+</html>
